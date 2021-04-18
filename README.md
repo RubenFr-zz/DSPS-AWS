@@ -5,8 +5,8 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 
 ### Local -> Manager
 * Attributes
-> * `Name` : "New Task"
-> * `Task` : unique `taskId` that will be used for the answer
+	* `Name` : "New Task"
+	* `Task` : unique `taskId` that will be used for the answer
 
 * Body
 ```json
