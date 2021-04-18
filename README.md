@@ -22,8 +22,7 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 ### Manager &rarr; Local
 * Attributes
 	* `Name` : "Task completed"
-	* `Report` : Location of the JSON report file
-	* `TaskId` : unique `taskId` transmitted during task request
+	* `Report` : unique `taskId` transmitted during task request
 
 * Body
 ```json
@@ -36,3 +35,41 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 > If the terminated field is `true` that means all the workers have been terminated and the manager instance is ready to be terminated.
 
 ### Manager &rarr; Worker(s)
+* Attributes
+	* `Name` : "New Job"
+	* `Job` : unique `jobId` __created by the manager__ to keep track of jobs (used for the response)
+
+* Body
+```json
+{
+	"title":"Where Is Baby's Belly Button? A Lift-the-Flap Book",
+	"reviews":
+	[
+		{
+			"id":"R14D3WP6J91DCU",
+			"link":"https://www.amazon.com/gp/customer-reviews/R14D3WP6J91DCU/ref=cm_cr_arp_d_rvw_ttl?ie=UTF8&ASIN=0689835604",
+			"title":"Five Stars","text":"Super cute book. My son loves lifting the flaps.",
+			"rating":5,
+			"author":"Nikki J",
+			"date":"2017-05-01T21:00:00.000Z"
+		},
+		{
+			"more reviews"
+		}
+	]
+}
+```
+> The body is a file with a few reviews of an amazon product (`title`) in the JSON format to be processed by a worker
+
+### Worker &rarr; Manager
+* Attributes
+	* `Name` : "Job Completed"
+	* `Done` : unique `jobId` __transmitted by the manager__
+
+* Body
+```json
+{
+	"job-report-location" : "location_of_the_file_with_the_report_in_s3(.txt)",
+	"job-id" : "jobID for the manager to recognize the request"
+}
+```
