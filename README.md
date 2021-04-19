@@ -54,7 +54,7 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 			"date":"2017-05-01T21:00:00.000Z"
 		},
 		{
-			"more reviews"
+			"more reviews" : "..."
 		}
 	]
 }
@@ -73,3 +73,13 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 	"job-id" : "jobID for the manager to recognize the request"
 }
 ```
+
+## Security
+
+[A Safer Way to Distribute AWS Credentials to EC2](https://aws.amazon.com/fr/blogs/security/a-safer-way-to-distribute-aws-credentials-to-ec2/)
+
+## Todo list
+- [ ] Remove the files locally and on s3 once we are done with them
+- [ ] Create 4 queues (one on each side, c.f SQS Message)
+- [ ] Run everything on AWS and wait for a result (try with a few files first!)
+- [ ] Don't forget to modify the jar files on s3
