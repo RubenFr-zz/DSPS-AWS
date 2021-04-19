@@ -67,12 +67,13 @@ public class SimpleQueueService {
     }
 
     public void sendMessage(SendMessageRequest.Builder message) {
-        SendMessageRequest request = message
+        SendMessageRequest send_msg_request = message
                 .queueUrl(QUEUE_URL)
                 .delaySeconds(5)
                 .build();
-        sqs.sendMessage(request);
-        System.out.println("Message sent: " + request.messageBody());
+
+        sqs.sendMessage(send_msg_request);
+        System.out.println("Message sent: " + send_msg_request.messageAttributes().get("Name").stringValue());
     }
 
     public void sendMessages(LinkedList<String> messages) {

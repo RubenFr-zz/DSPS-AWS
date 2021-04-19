@@ -25,80 +25,26 @@ import static j2html.TagCreator.*;
 public class LocalApplication {
 
     public static void main(String[] args) throws IOException, ParseException, InterruptedException {
-        String inputFileName = args[0];
-        String outputFileName = args[1];
-        int N = Integer.parseInt(args[2]);
-        boolean terminate = args.length == 4;
+//        String inputFileName = args[0];
+//        String outputFileName = args[1];
+//        int N = Integer.parseInt(args[2]);
+//        boolean terminate = args.length == 4;
+//
+//        run(inputFileName, outputFileName, N, terminate);
 
-        run(inputFileName, outputFileName, N, terminate);
-
-//        test();
+        test();
 
         System.out.println("\ndone");
     }
 
     private static void test() throws IOException, ParseException {
-
-        AMIService manager = null;
-
-        final String id = Long.toString(System.currentTimeMillis());
-        final StorageService s3 = new StorageService(id);
-        final SimpleQueueService sqs = new SimpleQueueService(id);
-
-        // 1. Upload Manager code to S3
-        s3.uploadFile("C:\\Users\\Ruben\\Documents\\Workspace\\Distributed Systems\\Task1-dsps\\target\\Manager\\Manager.jar", "Manager.jar");
-
-        // 2. Upload Worker code to S3
-        s3.uploadFile("C:\\Users\\Ruben\\Documents\\Workspace\\Distributed Systems\\Task1-dsps\\target\\Worker\\Worker.jar", "Worker.jar");
-
-        // 3. Upload Input File for Manager
-        s3.uploadFile("Input files/" , "input-" + id);
-        try {
-            // 4. Upload services location to s3
-            String services_location = "C:\\Users\\Ruben\\Documents\\Workspace\\Distributed Systems\\Task1-dsps\\services";
-            FileUtils.deleteQuietly(new File(services_location));
-
-            JSONObject obj = new JSONObject();
-            obj.put("s3", s3.getBucketName());
-            obj.put("sqs", sqs.getQueueName());
-
-            BufferedWriter writer = new BufferedWriter(new FileWriter(services_location));
-            writer.write(obj.toJSONString());
-            writer.close();
-
-            s3.uploadFile(services_location, "services");
-
-            // 5. Start Manager
-            manager = new AMIService(id, "manager");
-
-            // 6. Send Review Analysis request to the manager with the file locations
-            sendAnalysisRequest(0, false, id, sqs);
-
-            // 7. Wait for the manager to finish
-            System.out.println("Waiting for manager response");
-            Message response = sqs.nextMessage(new String[]{"Report"});
-            while (!response.messageAttributes().get("Report").stringValue().equals("task-" + id))
-                response = sqs.nextMessage(new String[]{"Report"});
-
-            ExtractResponse content = new ExtractResponse(response.body());
-            System.out.println("Received response from manager: " + content.task_id);
-        } catch (Exception e) {
-            System.out.println("\nERROR!\n" + e.getMessage() + "\n");
-        } finally {
-            try {
-                s3.deleteBucket();
-                sqs.deleteQueue();
-                if (manager != null) manager.terminate();
-            } catch (Exception e) {
-                System.out.println("\nERROR!\n" + e.getMessage() + "\n");
-            }
-        }
+        writeReport("report-Task-1", "output.txt");
     }
 
     private static void run(String inputFileName, String outputFileName, int N, boolean terminate) throws IOException, ParseException {
         String id = Long.toString(System.currentTimeMillis());
         StorageService s3 = new StorageService("bucket-dsps");
-        SimpleQueueService sqs = new SimpleQueueService(id);
+        SimpleQueueService sqs = new SimpleQueueService("queue-dsps");
 
         // 1. Upload Manager code to S3
 //        s3.uploadFile("target/Manager/Task1-dsps.jar", "Manager.jar");
@@ -110,20 +56,20 @@ public class LocalApplication {
         s3.uploadFile("Input_Files/" + inputFileName, "input-" + id);
 
         // 4. Upload services location to s3
-        FileUtils.deleteQuietly(new File("services"));
+        FileUtils.deleteQuietly(new File("services-manager"));
 
         JSONObject obj = new JSONObject();
         obj.put("s3", s3.getBucketName());
         obj.put("sqs", sqs.getQueueName());
 
-        BufferedWriter writer = new BufferedWriter(new FileWriter("services"));
+        BufferedWriter writer = new BufferedWriter(new FileWriter("services-manager"));
         writer.write(obj.toJSONString());
         writer.close();
 
-        s3.uploadFile("services", "services");
+        s3.uploadFile("services-manager", "services-manager");
 
         // 5. Start Manager
-        AMIService manager = new AMIService(id, "manager");
+//        AMIService manager = new AMIService(id, "manager");
 
         // 6. Send Review Analysis request to the manager with the file locations
         sendAnalysisRequest(N, terminate, id, sqs);
@@ -143,11 +89,11 @@ public class LocalApplication {
         writeReport("Downloaded_Reports/report-JSON-" + id, outputFileName);
 
         // 10. Check if there is a need to terminate
-        if (terminate && responseElements.terminated) {
-            s3.deleteBucket();
-            sqs.deleteQueue();
-            manager.terminate();
-        }
+//        if (terminate && responseElements.terminated) {
+//            s3.deleteBucket();
+//            sqs.deleteQueue();
+//            manager.terminate();
+//        }
     }
 
     private static void sendAnalysisRequest(int N, boolean terminate, String id, SimpleQueueService sqs) {
@@ -295,7 +241,7 @@ public class LocalApplication {
 
         // Save the result in a HTML file.
         FileUtils.deleteQuietly(new File("Output/" + destination));
-        BufferedWriter writer = new BufferedWriter(new FileWriter("Output/" + destination));
+        BufferedWriter writer = new BufferedWriter(new FileWriter(destination));
         writer.write(report);
         writer.close();
         System.out.println("Report ready: Output/" + destination);

@@ -47,13 +47,16 @@ public class Manager {
 
             ExtractContent content = new ExtractContent(task.body());
 
+            System.out.println("New Task received:" + content.task_id);
+
             // Download the review file from S3
             String task_id = "Task-" + tasks_id++;
             s3.downloadFile(content.review_file_location, "input-" + task_id);
 
             // Create workers if necessary
             for (int i = 0; i < content.N - WORKERS_HOLDER.size(); i++)
-                WORKERS_HOLDER.add(new AMIService("worker-" + System.currentTimeMillis(), "worker"));
+//                WORKERS_HOLDER.add(new AMIService("worker-" + System.currentTimeMillis(), "worker"));
+                System.out.println("Start new Worker " + i);
 
             // Create Report file
             REPORTS_HOLDER.put(task_id, new PrintWriter(new FileWriter("report-" + task_id)));
@@ -113,7 +116,7 @@ public class Manager {
 
                 review_file_location = (String) obj.get("review-file-location");
                 task_id = (String) obj.get("task-id");
-                N = (int) obj.get("N");
+                N = ((Long) obj.get("N")).intValue();
                 terminate = (boolean) obj.get("terminate");
             }
         }
@@ -167,6 +170,9 @@ public class Manager {
             REPORTS_HOLDER.get(task_id).close();
             REPORTS_HOLDER.remove(task_id);
 
+            // Upload result to s3
+            s3.uploadFile("report-" + task_id, "report-" + TASK_HOLDER.get(task_id));
+
             // Remove the task from the JOB_HANDLER
             JOBS_HOLDER.remove(task_id);
 
@@ -182,15 +188,15 @@ public class Manager {
                     .dataType("String")
                     .stringValue("New Report")
                     .build();
-            MessageAttributeValue jobAttribute = MessageAttributeValue.builder()
+            MessageAttributeValue reportAttribute = MessageAttributeValue.builder()
                     .dataType("String")
                     .stringValue(TASK_HOLDER.get(task_id))
                     .build();
             messageAttributes.put("Name", taskNameAttribute);
-            messageAttributes.put("Report", jobAttribute);
+            messageAttributes.put("Report", reportAttribute);
 
             JSONObject obj = new JSONObject();
-            obj.put("report-file-location", "report-" + task_id);
+            obj.put("report-file-location", "report-" + TASK_HOLDER.get(task_id));
             obj.put("task-id", TASK_HOLDER.get(task_id));
             obj.put("terminated", terminate.equals(task_id));
 
@@ -226,11 +232,12 @@ public class Manager {
         REPORTS_HOLDER = new HashMap<>();
         TASK_HOLDER = new HashMap<>();
         JOBS_HOLDER = new HashMap<>();
-        sqs_workers = new SimpleQueueService("workers-" + System.currentTimeMillis());
+//        sqs_workers = new SimpleQueueService("workers-" + System.currentTimeMillis());
+        sqs_workers = new SimpleQueueService("queue-workers-1618867571743");
         tasks_id = 1;
 
         // Get the names of the AWS instances
-        BufferedReader services = new BufferedReader(new FileReader("/services"));
+        BufferedReader services = new BufferedReader(new FileReader("services-manager"));
         String line = services.readLine();
 
         JSONParser parser = new JSONParser();
@@ -240,6 +247,19 @@ public class Manager {
         // Initialize the AWS instances
         s3 = new StorageService((String) jsonObj.get("s3"));
         sqs_local_app = new SimpleQueueService((String) jsonObj.get("sqs"));
+
+        // Upload services location to s3
+        FileUtils.deleteQuietly(new File("services-worker"));
+
+        JSONObject obj = new JSONObject();
+        obj.put("s3", s3.getBucketName());
+        obj.put("sqs", sqs_workers.getQueueName());
+
+        BufferedWriter writer = new BufferedWriter(new FileWriter("services-worker"));
+        writer.write(obj.toJSONString());
+        writer.close();
+
+        s3.uploadFile("services-worker", "services-worker");
 
         Thread taskHandlerThread = new Thread(new TaskHandler());
         Thread jobHandlerThread = new Thread(new JobHandler());

@@ -18,7 +18,7 @@ public class Worker {
 
     public static void main(String[] args) throws IOException, ParseException {
         // Get the names of the AWS instances
-        BufferedReader services = new BufferedReader(new FileReader("/services"));
+        BufferedReader services = new BufferedReader(new FileReader("services-worker"));
         String line = services.readLine();
 
         JSONParser parser = new JSONParser();
@@ -56,17 +56,21 @@ public class Worker {
                 Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
                 MessageAttributeValue nameAttribute = MessageAttributeValue.builder()
                         .dataType("String")
-                        .stringValue("report-" + System.currentTimeMillis())
+                        .stringValue("New Report")
                         .build();
                 MessageAttributeValue reportAttribute = MessageAttributeValue.builder()
                         .dataType("String")
-                        .stringValue(fileName)
+                        .stringValue(task_name)
                         .build();
                 messageAttributes.put("Name", nameAttribute);
                 messageAttributes.put("Done", reportAttribute);
 
+                JSONObject obj = new JSONObject();
+                obj.put("job-report-location", fileName);
+                obj.put("job-id", task_name);
+
                 sqs.sendMessage(SendMessageRequest.builder()
-                        .messageBody("Report for task: " + task_name + "\nFile location: " + fileName)
+                        .messageBody(obj.toJSONString())
                         .messageAttributes(messageAttributes)
                 );
 
