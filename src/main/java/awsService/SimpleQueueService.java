@@ -22,7 +22,7 @@ public class SimpleQueueService {
             System.out.println("Connected to queue: " + id);
 
         } catch (QueueDoesNotExistException e) {
-            name = "Queue-" + id;
+            name = "queue-" + id;
             createQueue(name);
             url = getQueueUrl(name);
             System.out.println("Queue created:\n\tid: " + name + "\n\turl: " + url);

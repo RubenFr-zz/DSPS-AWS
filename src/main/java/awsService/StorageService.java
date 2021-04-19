@@ -41,7 +41,7 @@ public class StorageService {
     public void createBucket() {
         CreateBucketRequest request = CreateBucketRequest.builder()
                 .bucket(BUCKET_NAME)
-                .acl("public")
+//                .acl(BucketCannedACL.PUBLIC_READ_WRITE)
                 .createBucketConfiguration(
                         CreateBucketConfiguration.builder()
                                 .build())
@@ -80,6 +80,7 @@ public class StorageService {
         s3.putObject(PutObjectRequest.builder()
                         .bucket(BUCKET_NAME)
                         .key(destination)
+                        .acl(ObjectCannedACL.PUBLIC_READ_WRITE)     // Make the file available for read/write
                         .build(),
                 RequestBody.fromFile(new File(source)));
         System.out.println("File uploaded : " + destination);

@@ -38,53 +38,76 @@ public class LocalApplication {
     }
 
     private static void test() throws IOException, ParseException {
-//        StorageService s3 = new StorageService("bucket-dsps");
-//        s3.uploadFile("Input files/0689835604.txt","reviews");
 
-//        BufferedReader reader = new BufferedReader(new FileReader("Input files/0689835604.txt"));
-//        String line = reader.readLine();
-//
-        SimpleQueueService sqs = new SimpleQueueService("queue-dsps");
-//
-//        Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
-//        MessageAttributeValue nameAttribute = MessageAttributeValue.builder()
-//                .dataType("String")
-//                .stringValue("New Task")
-//                .build();
-//        MessageAttributeValue taskAttribute = MessageAttributeValue.builder()
-//                .dataType("String")
-//                .stringValue("Task-" + System.currentTimeMillis())
-//                .build();
-//        messageAttributes.put("Name", nameAttribute);
-//        messageAttributes.put("Task", taskAttribute);
-//
-//        sqs.sendMessage(SendMessageRequest.builder()
-//                .messageBody(line)
-//                .messageAttributes(messageAttributes)
-//        );
+        AMIService manager = null;
 
-        Message response = sqs.nextMessage(new String[]{"Report"});
-        String report_location = response.messageAttributes().get("Report").stringValue();
-        System.out.println("Report Location: " + report_location);
-//        sqs.deleteMessage(response);
+        final String id = Long.toString(System.currentTimeMillis());
+        final StorageService s3 = new StorageService(id);
+        final SimpleQueueService sqs = new SimpleQueueService(id);
 
-        // 9. Create html report
-        writeReport(report_location, "report.html");
+        // 1. Upload Manager code to S3
+        s3.uploadFile("C:\\Users\\Ruben\\Documents\\Workspace\\Distributed Systems\\Task1-dsps\\target\\Manager\\Manager.jar", "Manager.jar");
+
+        // 2. Upload Worker code to S3
+        s3.uploadFile("C:\\Users\\Ruben\\Documents\\Workspace\\Distributed Systems\\Task1-dsps\\target\\Worker\\Worker.jar", "Worker.jar");
+
+        // 3. Upload Input File for Manager
+        s3.uploadFile("Input files/" , "input-" + id);
+        try {
+            // 4. Upload services location to s3
+            String services_location = "C:\\Users\\Ruben\\Documents\\Workspace\\Distributed Systems\\Task1-dsps\\services";
+            FileUtils.deleteQuietly(new File(services_location));
+
+            JSONObject obj = new JSONObject();
+            obj.put("s3", s3.getBucketName());
+            obj.put("sqs", sqs.getQueueName());
+
+            BufferedWriter writer = new BufferedWriter(new FileWriter(services_location));
+            writer.write(obj.toJSONString());
+            writer.close();
+
+            s3.uploadFile(services_location, "services");
+
+            // 5. Start Manager
+            manager = new AMIService(id, "manager");
+
+            // 6. Send Review Analysis request to the manager with the file locations
+            sendAnalysisRequest(0, false, id, sqs);
+
+            // 7. Wait for the manager to finish
+            System.out.println("Waiting for manager response");
+            Message response = sqs.nextMessage(new String[]{"Report"});
+            while (!response.messageAttributes().get("Report").stringValue().equals("task-" + id))
+                response = sqs.nextMessage(new String[]{"Report"});
+
+            ExtractResponse content = new ExtractResponse(response.body());
+            System.out.println("Received response from manager: " + content.task_id);
+        } catch (Exception e) {
+            System.out.println("\nERROR!\n" + e.getMessage() + "\n");
+        } finally {
+            try {
+                s3.deleteBucket();
+                sqs.deleteQueue();
+                if (manager != null) manager.terminate();
+            } catch (Exception e) {
+                System.out.println("\nERROR!\n" + e.getMessage() + "\n");
+            }
+        }
     }
 
     private static void run(String inputFileName, String outputFileName, int N, boolean terminate) throws IOException, ParseException {
         String id = Long.toString(System.currentTimeMillis());
-        StorageService s3 = new StorageService(id);
+        StorageService s3 = new StorageService("bucket-dsps");
         SimpleQueueService sqs = new SimpleQueueService(id);
 
         // 1. Upload Manager code to S3
-        s3.uploadFile("target/Manager/Task1-dsps.jar", "Manager.jar");
+//        s3.uploadFile("target/Manager/Task1-dsps.jar", "Manager.jar");
 
         // 2. Upload Worker code to S3
-        s3.uploadFile("target/Worker/Task1-dsps.jar", "Worker.jar");
+//        s3.uploadFile("target/Worker/Task1-dsps.jar", "Worker.jar");
 
         // 3. Upload Input File for Manager
-        s3.uploadFile(inputFileName, "input-" + id);
+        s3.uploadFile("Input_Files/" + inputFileName, "input-" + id);
 
         // 4. Upload services location to s3
         FileUtils.deleteQuietly(new File("services"));
@@ -114,10 +137,10 @@ public class LocalApplication {
         sqs.deleteMessage(response);
 
         // 8. Download report from S3
-        s3.downloadFile(responseElements.report_location, "report-JSON-" + id);
+        s3.downloadFile(responseElements.report_location, "Downloaded_Reports/report-JSON-" + id);
 
         // 9. Create html report
-        writeReport("report-JSON-" + id, outputFileName);
+        writeReport("Downloaded_Reports/report-JSON-" + id, outputFileName);
 
         // 10. Check if there is a need to terminate
         if (terminate && responseElements.terminated) {
@@ -271,10 +294,11 @@ public class LocalApplication {
 
 
         // Save the result in a HTML file.
-        FileUtils.deleteQuietly(new File(destination)); // Remove
-        BufferedWriter writer = new BufferedWriter(new FileWriter(destination));
+        FileUtils.deleteQuietly(new File("Output/" + destination));
+        BufferedWriter writer = new BufferedWriter(new FileWriter("Output/" + destination));
         writer.write(report);
         writer.close();
+        System.out.println("Report ready: Output/" + destination);
     }
 
     private static String isSarcasm(int value1, int value2) {

@@ -18,7 +18,7 @@ public class Worker {
 
     public static void main(String[] args) throws IOException, ParseException {
         // Get the names of the AWS instances
-        BufferedReader services = new BufferedReader(new FileReader("services"));
+        BufferedReader services = new BufferedReader(new FileReader("/services"));
         String line = services.readLine();
 
         JSONParser parser = new JSONParser();
@@ -80,10 +80,10 @@ public class Worker {
     }
 
     public static String getUserData(String id) {
-        ArrayList<String> lines = new ArrayList<>();
-        lines.add("#! /bin/bash" + '\n');
-        lines.add("wget \"https://bucket-" + id + ".s3.amazonaws.com/Worker.jar\"" + '\n');
-        lines.add("java -jar Worker.jar " + '\n');
-        return Base64.getEncoder().encodeToString(lines.toString().getBytes());
+        String cmd = "#! /bin/bash" + '\n' +
+                "wget https://bucket-" +id + ".s3.amazonaws.com/services" + '\n' +
+                "wget https://bucket-" +id + ".s3.amazonaws.com/Worker.jar" + '\n' +
+                "java -jar Worker.jar" + '\n';
+        return Base64.getEncoder().encodeToString(cmd.getBytes());
     }
 }

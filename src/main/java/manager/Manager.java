@@ -226,11 +226,11 @@ public class Manager {
         REPORTS_HOLDER = new HashMap<>();
         TASK_HOLDER = new HashMap<>();
         JOBS_HOLDER = new HashMap<>();
-        sqs_workers = new SimpleQueueService("manager-queue-" + System.currentTimeMillis());
+        sqs_workers = new SimpleQueueService("workers-" + System.currentTimeMillis());
         tasks_id = 1;
 
         // Get the names of the AWS instances
-        BufferedReader services = new BufferedReader(new FileReader("services"));
+        BufferedReader services = new BufferedReader(new FileReader("/services"));
         String line = services.readLine();
 
         JSONParser parser = new JSONParser();
@@ -249,13 +249,40 @@ public class Manager {
 
         taskHandlerThread.join();
         jobHandlerThread.join();
+
+//        Message task = sqs_local_app.nextMessage(new String[]{"Task"});
+//
+//        String task_id = task.messageAttributes().get("Task").stringValue();
+//
+//        Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
+//        MessageAttributeValue taskNameAttribute = MessageAttributeValue.builder()
+//                .dataType("String")
+//                .stringValue("Message Received!")
+//                .build();
+//        MessageAttributeValue jobAttribute = MessageAttributeValue.builder()
+//                .dataType("String")
+//                .stringValue(task_id)
+//                .build();
+//        messageAttributes.put("Name", taskNameAttribute);
+//        messageAttributes.put("Report", jobAttribute);
+//
+//        JSONObject obj = new JSONObject();
+//        obj.put("report-file-location", "report-" + task_id);
+//        obj.put("task-id", task_id);
+//        obj.put("terminated", false);
+//
+//        sqs_local_app.sendMessage(SendMessageRequest.builder()
+//                .messageBody(obj.toJSONString())
+//                .messageAttributes(messageAttributes)
+//        );
+
     }
 
     public static String getUserData(String id) {
-        ArrayList<String> lines = new ArrayList<>();
-        lines.add("#! /bin/bash" + '\n');
-        lines.add("wget https://bucket-" + id + ".s3.amazonaws.com/Manager.jar" + '\n');
-        lines.add("java -jar manager.jar " + '\n');
-        return Base64.getEncoder().encodeToString(lines.toString().getBytes());
+        String cmd = "#! /bin/bash" + '\n' +
+                "wget https://bucket-" +id + ".s3.amazonaws.com/services" + '\n' +
+                "wget https://bucket-" +id + ".s3.amazonaws.com/Manager.jar" + '\n' +
+                "java -jar Manager.jar > logger" + '\n';
+        return Base64.getEncoder().encodeToString(cmd.getBytes());
     }
 }

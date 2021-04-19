@@ -50,7 +50,7 @@ public class AMIService {
             for (Instance instance : reservation.instances()) {
                 for (Tag tag : instance.tags())
                     if (tag.key().equals("Name"))
-                        if (tag.value().contains("manager"))
+                        if (tag.value().contains("manager") && instance.state().name().name().equals("running"))
                             return instance.instanceId();
             }
         }
@@ -60,17 +60,18 @@ public class AMIService {
     public String createInstance(String name, String userData) {
 
         IamInstanceProfileSpecification role = IamInstanceProfileSpecification.builder()
-                .arn("arn:aws:iam::752625253392:role/EC2-role")
+                .name("EC2-role")
+//                .name("EMR_EC2_DefaultRole")
                 .build();
 
         RunInstancesRequest runRequest = RunInstancesRequest.builder()
-                .instanceType(InstanceType.T2_SMALL)
+                .instanceType(InstanceType.T2_MEDIUM)
                 .imageId(amiId)
                 .maxCount(1)
                 .minCount(1)
                 .userData(userData)
                 .keyName("ec2-java-ssh")
-                .securityGroupIds("sg-729c247c")
+                .securityGroupIds("sg-08106b9ce6c226627")
                 .iamInstanceProfile(role)
                 .build();
 
@@ -106,5 +107,6 @@ public class AMIService {
                 .instanceIds(instanceId)
                 .build();
         ec2.terminateInstances(terminate_request);
+        System.out.println("EC2 Instance terminated: " + instanceId);
     }
 }
