@@ -15,17 +15,16 @@ import java.util.*;
 
 public class Manager {
 
-    private static String MANAGER_ID;
+    private static LinkedList <AMIService> WORKERS_HOLDER;      // Holds the Ec2 instances of the workers running
+    private static Map<String, PrintWriter> REPORTS_HOLDER;     // Holds the PrintWriter obj associated to each task report
+    private static Map<String, String> TASK_HOLDER;             // Holds the id of the tasks sent by the local application
+    private static Map<String, Integer> JOBS_HOLDER;            // Holds the number of jobs remaining for each task
+    private static String terminate;                            // Holds the task's name that required termination
+    private static int tasks_id;                                // Next task-id
 
-    private static LinkedList <AMIService> WORKERS_HOLDER;
-    private static Map<String, PrintWriter> REPORTS_HOLDER;
-    private static Map<String, String> TASK_HOLDER;
-    private static Map<String, Integer> JOBS_HOLDER;
-    private static int tasks_id;
-
-    private static StorageService s3;
-    private static SimpleQueueService sqs_manager;
-    private static SimpleQueueService sqs_workers;
+    private static StorageService s3;                           // Connection to the s3
+    private static SimpleQueueService sqs_local_app;            // Connection to the local-manager queue
+    private static SimpleQueueService sqs_workers;              // Connection to the manager-workers queue
 
     private static class TaskHandler implements Runnable {
 
@@ -33,10 +32,10 @@ public class Manager {
         public void run() {
             while (true) {
                 // Fetch the next pending task (Review)
-                Message task = sqs_manager.nextMessage(new String[]{"Task"});
+                Message task = sqs_local_app.nextMessage(new String[]{"Task"});
                 try {
                     handleNewTask(task);
-                    sqs_manager.deleteMessage(task);
+                    sqs_local_app.deleteMessage(task);
                 } catch (ParseException | IOException e) {
                     e.printStackTrace();
                     return;
@@ -49,7 +48,7 @@ public class Manager {
             ExtractContent content = new ExtractContent(task.body());
 
             // Download the review file from S3
-            int task_id = tasks_id++;
+            String task_id = "Task-" + tasks_id++;
             s3.downloadFile(content.review_file_location, "input-" + task_id);
 
             // Create workers if necessary
@@ -57,10 +56,13 @@ public class Manager {
                 WORKERS_HOLDER.add(new AMIService("worker-" + System.currentTimeMillis(), "worker"));
 
             // Create Report file
-            REPORTS_HOLDER.put("Task-" + task_id, new PrintWriter(new FileWriter("report-" + task_id)));
+            REPORTS_HOLDER.put(task_id, new PrintWriter(new FileWriter("report-" + task_id)));
 
             // Save task name for the response
-            TASK_HOLDER.put("Task-" + task_id, task.messageAttributes().get("Task").stringValue());
+            TASK_HOLDER.put(task_id, content.task_id);
+
+            //Check if the task require termination at its completion
+            if (content.terminate) terminate = task_id;
 
             // Send to sqs all the queries
             BufferedReader reader = new BufferedReader(new FileReader("input-" + task_id));
@@ -73,13 +75,13 @@ public class Manager {
             }
 
             // Save the number of jobs remaining to complete the task
-            JOBS_HOLDER.put("Task-" + task_id, numberOfLines);
+            JOBS_HOLDER.put(task_id, numberOfLines);
 
             // Remove Review file from s3
 //            s3.removeFile(report_location);
         }
 
-        private void sendNewJob(int task_id, String line) {
+        private void sendNewJob(String task_id, String line) {
             Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
             MessageAttributeValue taskNameAttribute = MessageAttributeValue.builder()
                     .dataType("String")
@@ -87,7 +89,7 @@ public class Manager {
                     .build();
             MessageAttributeValue jobAttribute = MessageAttributeValue.builder()
                     .dataType("String")
-                    .stringValue("Task-" + task_id)
+                    .stringValue(task_id)
                     .build();
             messageAttributes.put("Name", taskNameAttribute);
             messageAttributes.put("Job", jobAttribute);
@@ -160,10 +162,48 @@ public class Manager {
             if (JOBS_HOLDER.get(content.task_id) == 0) completeTask(content.task_id);
         }
 
-        // TODO: remove the task from the maps and send the message via sqs to the appropriate local
         private void completeTask(String task_id) {
+            // Close the printer associated to the report file of this task and remove it from the map
+            REPORTS_HOLDER.get(task_id).close();
+            REPORTS_HOLDER.remove(task_id);
+
+            // Remove the task from the JOB_HANDLER
+            JOBS_HOLDER.remove(task_id);
+
+            // Send a message to the corresponding local that its task is over
+            if (terminate.equals(task_id)) terminateWorkers();
+            sendCompletedTaskMessage(task_id);
+            TASK_HOLDER.remove(task_id);
         }
 
+        private void sendCompletedTaskMessage(String task_id) {
+            Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
+            MessageAttributeValue taskNameAttribute = MessageAttributeValue.builder()
+                    .dataType("String")
+                    .stringValue("New Report")
+                    .build();
+            MessageAttributeValue jobAttribute = MessageAttributeValue.builder()
+                    .dataType("String")
+                    .stringValue(TASK_HOLDER.get(task_id))
+                    .build();
+            messageAttributes.put("Name", taskNameAttribute);
+            messageAttributes.put("Report", jobAttribute);
+
+            JSONObject obj = new JSONObject();
+            obj.put("report-file-location", "report-" + task_id);
+            obj.put("task-id", TASK_HOLDER.get(task_id));
+            obj.put("terminated", terminate.equals(task_id));
+
+            sqs_local_app.sendMessage(SendMessageRequest.builder()
+                    .messageBody(obj.toJSONString())
+                    .messageAttributes(messageAttributes)
+            );
+        }
+
+        private void terminateWorkers() {
+            for (AMIService worker : WORKERS_HOLDER)
+                worker.terminate();
+        }
 
         private static class ExtractContent {
             protected String job_report_location;
@@ -182,12 +222,11 @@ public class Manager {
 
     public static void main(String[] args) throws IOException, ParseException, InterruptedException {
         // Initialize
-        MANAGER_ID = Long.toString(System.currentTimeMillis());
         WORKERS_HOLDER = new LinkedList<>();
         REPORTS_HOLDER = new HashMap<>();
         TASK_HOLDER = new HashMap<>();
         JOBS_HOLDER = new HashMap<>();
-        sqs_workers = new SimpleQueueService("manager-queue-" + MANAGER_ID);
+        sqs_workers = new SimpleQueueService("manager-queue-" + System.currentTimeMillis());
         tasks_id = 1;
 
         // Get the names of the AWS instances
@@ -200,7 +239,7 @@ public class Manager {
 
         // Initialize the AWS instances
         s3 = new StorageService((String) jsonObj.get("s3"));
-        sqs_manager = new SimpleQueueService((String) jsonObj.get("sqs"));
+        sqs_local_app = new SimpleQueueService((String) jsonObj.get("sqs"));
 
         Thread taskHandlerThread = new Thread(new TaskHandler());
         Thread jobHandlerThread = new Thread(new JobHandler());

@@ -1,13 +1,17 @@
 package awsService;
 
 import manager.Manager;
+import worker.Worker;
+
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
 
 public class AMIService {
 
-    private final String amiId = "ami-0e38cf7446e8264f3";
+    //    private final String amiId = "ami-0e38cf7446e8264f3";
+    private final String amiId = "ami-0009c3f63fca71e34"; // with java
+
     private final Ec2Client ec2;
     private final String instanceId;
 
@@ -15,24 +19,42 @@ public class AMIService {
     public AMIService(String id, String type) {
         ec2 = Ec2Client.builder().region(Region.US_EAST_1).build();
         switch (type) {
-            case "manager": instanceId = startManager(id); break;
-            case "worker": instanceId = startWorker(id); break;
-            default: instanceId = "";
+            case "manager":
+                instanceId = startManager(id);
+                break;
+            case "worker":
+                instanceId = startWorker(id);
+                break;
+            default:
+                instanceId = "";
         }
     }
 
-    // TODO: Change the createInstance args and see if the workers already exist
-    private String startWorker(String id) {
-        // Check if the instance already exists
-        String EC2_NAME = "worker-" + id;
-        return createInstance(EC2_NAME, Manager.getUserData(id));
+    public String startManager(String id) {
+        // Check if the manager already exists
+        String manager_id = findManager();
+
+        if (manager_id != null) return manager_id;
+        else return createInstance("manager-" + id, Manager.getUserData(id));
     }
 
-    // TODO: Change the createInstance args and see if the workers already exist
-    public String startManager(String id) {
-        // Check if the instance already exists
-        String EC2_NAME = "manager-" + id;
-        return createInstance(EC2_NAME, Manager.getUserData(id));
+    private String startWorker(String id) {
+        return createInstance("worker-" + id, Worker.getUserData(id));
+    }
+
+    private String findManager() {
+        DescribeInstancesRequest request = DescribeInstancesRequest.builder().build();
+        DescribeInstancesResponse response = ec2.describeInstances(request);
+
+        for (Reservation reservation : response.reservations()) {
+            for (Instance instance : reservation.instances()) {
+                for (Tag tag : instance.tags())
+                    if (tag.key().equals("Name"))
+                        if (tag.value().contains("manager"))
+                            return instance.instanceId();
+            }
+        }
+        return null;
     }
 
     public String createInstance(String name, String userData) {
@@ -42,13 +64,16 @@ public class AMIService {
                 .build();
 
         RunInstancesRequest runRequest = RunInstancesRequest.builder()
-                .instanceType(InstanceType.T2_MICRO)
+                .instanceType(InstanceType.T2_SMALL)
                 .imageId(amiId)
                 .maxCount(1)
                 .minCount(1)
                 .userData(userData)
                 .keyName("ec2-java-ssh")
+                .securityGroupIds("sg-729c247c")
+                .iamInstanceProfile(role)
                 .build();
+
 
         RunInstancesResponse response = ec2.runInstances(runRequest);
 
@@ -66,7 +91,7 @@ public class AMIService {
 
         try {
             ec2.createTags(tagRequest);
-            System.out.printf("Successfully started EC2 instance %s based on AMI %s\n",instanceId, amiId);
+            System.out.printf("Successfully started EC2 instance %s based on AMI %s\n", name, amiId);
 
         } catch (Ec2Exception e) {
             System.err.println(e.getMessage());

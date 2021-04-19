@@ -12,9 +12,7 @@ import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 import java.io.*;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.Map;
+import java.util.*;
 
 public class Worker {
 
@@ -34,44 +32,58 @@ public class Worker {
         // Initialize the Review Analysis Handler
         ReviewAnalysisHandler handler = new ReviewAnalysisHandler();
 
+
         while (true) {
-            // Fetch the next pending task (Review)
-            Message task = sqs.nextMessage(new String[]{"Job"});
-            String task_name = task.messageAttributes().get("Job").stringValue();
+            try {
+                // Fetch the next pending task (Review)
+                Message task = sqs.nextMessage(new String[]{"Job"});
+                String task_name = task.messageAttributes().get("Job").stringValue();
 
-            // Run the review analysis
-            LinkedList<String> reports = handler.work(task.body());
+                // Run the review analysis
+                LinkedList<String> reports = handler.work(task.body());
 
-            // Create the report file
-            String fileName = "report-" + System.currentTimeMillis();
-            PrintWriter writer = new PrintWriter(new FileWriter(fileName, true));
-            for (String report : reports)
-                writer.println(report);
-            writer.close();
+                // Create the report file
+                String fileName = "report-" + System.currentTimeMillis();
+                PrintWriter writer = new PrintWriter(new FileWriter(fileName, true));
+                for (String report : reports)
+                    writer.println(report);
+                writer.close();
 
-            // Upload the report to s3
-            s3.uploadFile(fileName, fileName);
+                // Upload the report to s3
+                s3.uploadFile(fileName, fileName);
 
-            // Send a message that the computation is over with the location of the report on s3
-            Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
-            MessageAttributeValue nameAttribute = MessageAttributeValue.builder()
-                    .dataType("String")
-                    .stringValue("report-" + System.currentTimeMillis())
-                    .build();
-            MessageAttributeValue reportAttribute = MessageAttributeValue.builder()
-                    .dataType("String")
-                    .stringValue(fileName)
-                    .build();
-            messageAttributes.put("Name", nameAttribute);
-            messageAttributes.put("Done", reportAttribute);
+                // Send a message that the computation is over with the location of the report on s3
+                Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
+                MessageAttributeValue nameAttribute = MessageAttributeValue.builder()
+                        .dataType("String")
+                        .stringValue("report-" + System.currentTimeMillis())
+                        .build();
+                MessageAttributeValue reportAttribute = MessageAttributeValue.builder()
+                        .dataType("String")
+                        .stringValue(fileName)
+                        .build();
+                messageAttributes.put("Name", nameAttribute);
+                messageAttributes.put("Done", reportAttribute);
 
-            sqs.sendMessage(SendMessageRequest.builder()
-                    .messageBody("Report for task: " + task_name + "\nFile location: " + fileName)
-                    .messageAttributes(messageAttributes)
-            );
+                sqs.sendMessage(SendMessageRequest.builder()
+                        .messageBody("Report for task: " + task_name + "\nFile location: " + fileName)
+                        .messageAttributes(messageAttributes)
+                );
 
-             // Remove the executed task from the queue
-            sqs.deleteMessage(task);
+                // Remove the executed task from the queue
+                sqs.deleteMessage(task);
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+                break;
+            }
         }
+    }
+
+    public static String getUserData(String id) {
+        ArrayList<String> lines = new ArrayList<>();
+        lines.add("#! /bin/bash" + '\n');
+        lines.add("wget \"https://bucket-" + id + ".s3.amazonaws.com/Worker.jar\"" + '\n');
+        lines.add("java -jar Worker.jar " + '\n');
+        return Base64.getEncoder().encodeToString(lines.toString().getBytes());
     }
 }

@@ -25,14 +25,14 @@ import static j2html.TagCreator.*;
 public class LocalApplication {
 
     public static void main(String[] args) throws IOException, ParseException, InterruptedException {
-//        String inputFileName = args[0];
-//        String outputFileName = args[1];
-//        int N = Integer.parseInt(args[2]);
-//        boolean terminate = args.length == 4;
+        String inputFileName = args[0];
+        String outputFileName = args[1];
+        int N = Integer.parseInt(args[2]);
+        boolean terminate = args.length == 4;
 
-//        run(inputFileName, outputFileName, N, terminate);
+        run(inputFileName, outputFileName, N, terminate);
 
-        test();
+//        test();
 
         System.out.println("\ndone");
     }
@@ -78,10 +78,10 @@ public class LocalApplication {
         SimpleQueueService sqs = new SimpleQueueService(id);
 
         // 1. Upload Manager code to S3
-        s3.uploadFile("Manager.jar", "Manager.jar");
+        s3.uploadFile("target/Manager/Task1-dsps.jar", "Manager.jar");
 
         // 2. Upload Worker code to S3
-        s3.uploadFile("Worker.jar", "Worker.jar");
+        s3.uploadFile("target/Worker/Task1-dsps.jar", "Worker.jar");
 
         // 3. Upload Input File for Manager
         s3.uploadFile(inputFileName, "input-" + id);

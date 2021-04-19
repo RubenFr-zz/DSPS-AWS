@@ -9,6 +9,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable;
+import software.amazon.awssdk.services.sqs.model.CreateQueueRequest;
 
 public class StorageService {
 
@@ -24,7 +25,7 @@ public class StorageService {
         if (bucketExist(id)) {
             BUCKET_NAME = id;
             System.out.println("Connected to bucket: " + id);
-        }else {
+        } else {
             BUCKET_NAME = "bucket-" + id;
             createBucket();
         }
@@ -38,14 +39,15 @@ public class StorageService {
     }
 
     public void createBucket() {
-        s3.createBucket(CreateBucketRequest
-                .builder()
+        CreateBucketRequest request = CreateBucketRequest.builder()
                 .bucket(BUCKET_NAME)
+                .acl("public")
                 .createBucketConfiguration(
                         CreateBucketConfiguration.builder()
-//						    .locationConstraint(region.id())
                                 .build())
-                .build());
+                .build();
+
+        s3.createBucket(request);
         System.out.println("Bucket created: " + BUCKET_NAME);
     }
 
