@@ -80,6 +80,6 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 
 ## Todo list
 - [ ] Remove the files locally and on s3 once we are done with them
-- [ ] Create 4 queues (one on each side, c.f SQS Message)
+- [ ] Create 4 queues (one on each side, c.f [SQS Message](#sqs-messages))
 - [ ] Run everything on AWS and wait for a result (try with a few files first!)
 - [ ] Don't forget to modify the jar files on s3
