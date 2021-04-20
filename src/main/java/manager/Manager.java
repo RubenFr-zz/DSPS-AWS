@@ -32,7 +32,7 @@ public class Manager {
         public void run() {
             while (true) {
                 // Fetch the next pending task (Review)
-                Message task = sqs_local_app.nextMessage(new String[]{"Task"});
+                Message task = sqs_local_app.nextMessage("Task");
                 try {
                     handleNewTask(task);
                     sqs_local_app.deleteMessage(task);
@@ -52,11 +52,6 @@ public class Manager {
             // Download the review file from S3
             String task_id = "Task-" + tasks_id++;
             s3.downloadFile(content.review_file_location, "input-" + task_id);
-
-            // Create workers if necessary
-            for (int i = 0; i < content.N - WORKERS_HOLDER.size(); i++)
-//                WORKERS_HOLDER.add(new AMIService("worker-" + System.currentTimeMillis(), "worker"));
-                System.out.println("Start new Worker " + i);
 
             // Create Report file
             REPORTS_HOLDER.put(task_id, new PrintWriter(new FileWriter("report-" + task_id)));
@@ -80,8 +75,9 @@ public class Manager {
             // Save the number of jobs remaining to complete the task
             JOBS_HOLDER.put(task_id, numberOfLines);
 
-            // Remove Review file from s3
-//            s3.removeFile(report_location);
+            // Create new workers if necessary
+            for (int i = 0; i < Math.max(Math.ceil((double) numberOfLines / (double) content.N) - WORKERS_HOLDER.size(), 15 - WORKERS_HOLDER.size()); i++)
+                WORKERS_HOLDER.add(new AMIService(s3.getBucketName(), "worker"));
         }
 
         private void sendNewJob(String task_id, String line) {
@@ -106,7 +102,7 @@ public class Manager {
         private static class ExtractContent {
             protected String review_file_location;
             protected String task_id;
-            protected int N;
+            protected long N;
             protected boolean terminate;
 
             protected ExtractContent(String jsonString) throws ParseException {
@@ -116,7 +112,7 @@ public class Manager {
 
                 review_file_location = (String) obj.get("review-file-location");
                 task_id = (String) obj.get("task-id");
-                N = ((Long) obj.get("N")).intValue();
+                N = (Long) obj.get("N");
                 terminate = (boolean) obj.get("terminate");
             }
         }
@@ -128,7 +124,7 @@ public class Manager {
         public void run() {
             while (true) {
                 // Fetch the next pending task (Review)
-                Message job = sqs_workers.nextMessage(new String[]{"Done"});
+                Message job = sqs_workers.nextMessage("Done");
                 try {
                     handleJobEnding(job);
                     sqs_workers.deleteMessage(job);
@@ -154,12 +150,16 @@ public class Manager {
                 REPORTS_HOLDER.get(content.task_id).println(line);
                 line = reader.readLine();
             }
-
-            // Delete the job report to save memory
-            FileUtils.deleteQuietly(new File(jobReportLocation));
+            reader.close();
 
             // Decrease the number of jobs to complete
             JOBS_HOLDER.put(content.task_id, JOBS_HOLDER.get(content.task_id) - 1);
+
+            // Remove the report job from s3
+            s3.deleteFile(content.job_report_location);
+
+            // Remove the file from the ec2 instance
+            FileUtils.deleteQuietly(new File(jobReportLocation));
 
             // If there is no job left to complete send the final report to the local
             if (JOBS_HOLDER.get(content.task_id) == 0) completeTask(content.task_id);
@@ -170,8 +170,12 @@ public class Manager {
             REPORTS_HOLDER.get(task_id).close();
             REPORTS_HOLDER.remove(task_id);
 
+            // Delete the input file locally
+            FileUtils.deleteQuietly(new File("input-" + task_id));
+
             // Upload result to s3
             s3.uploadFile("report-" + task_id, "report-" + TASK_HOLDER.get(task_id));
+            FileUtils.deleteQuietly(new File("report-" + task_id));
 
             // Remove the task from the JOB_HANDLER
             JOBS_HOLDER.remove(task_id);
@@ -207,6 +211,9 @@ public class Manager {
         }
 
         private void terminateWorkers() {
+            s3.deleteFile("services-worker");
+            FileUtils.deleteQuietly(new File("services-worker"));
+
             for (AMIService worker : WORKERS_HOLDER)
                 worker.terminate();
         }
@@ -232,8 +239,8 @@ public class Manager {
         REPORTS_HOLDER = new HashMap<>();
         TASK_HOLDER = new HashMap<>();
         JOBS_HOLDER = new HashMap<>();
-//        sqs_workers = new SimpleQueueService("workers-" + System.currentTimeMillis());
-        sqs_workers = new SimpleQueueService("queue-workers-1618867571743");
+//        sqs_workers = new SimpleQueueService("queue-workers-" + System.currentTimeMillis());
+        sqs_workers = new SimpleQueueService("queue-workers-dsps");
         tasks_id = 1;
 
         // Get the names of the AWS instances
@@ -269,39 +276,12 @@ public class Manager {
 
         taskHandlerThread.join();
         jobHandlerThread.join();
-
-//        Message task = sqs_local_app.nextMessage(new String[]{"Task"});
-//
-//        String task_id = task.messageAttributes().get("Task").stringValue();
-//
-//        Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
-//        MessageAttributeValue taskNameAttribute = MessageAttributeValue.builder()
-//                .dataType("String")
-//                .stringValue("Message Received!")
-//                .build();
-//        MessageAttributeValue jobAttribute = MessageAttributeValue.builder()
-//                .dataType("String")
-//                .stringValue(task_id)
-//                .build();
-//        messageAttributes.put("Name", taskNameAttribute);
-//        messageAttributes.put("Report", jobAttribute);
-//
-//        JSONObject obj = new JSONObject();
-//        obj.put("report-file-location", "report-" + task_id);
-//        obj.put("task-id", task_id);
-//        obj.put("terminated", false);
-//
-//        sqs_local_app.sendMessage(SendMessageRequest.builder()
-//                .messageBody(obj.toJSONString())
-//                .messageAttributes(messageAttributes)
-//        );
-
     }
 
-    public static String getUserData(String id) {
+    public static String getUserData(String bucketName) {
         String cmd = "#! /bin/bash" + '\n' +
-                "wget https://bucket-" +id + ".s3.amazonaws.com/services" + '\n' +
-                "wget https://bucket-" +id + ".s3.amazonaws.com/Manager.jar" + '\n' +
+                "wget https://" + bucketName + ".s3.amazonaws.com/services-manager" + '\n' +
+                "wget https://" + bucketName + ".s3.amazonaws.com/Manager.jar" + '\n' +
                 "java -jar Manager.jar > logger" + '\n';
         return Base64.getEncoder().encodeToString(cmd.getBytes());
     }

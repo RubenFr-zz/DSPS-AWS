@@ -16,30 +16,30 @@ public class AMIService {
     private final String instanceId;
 
 
-    public AMIService(String id, String type) {
+    public AMIService(String bucket, String type) {
         ec2 = Ec2Client.builder().region(Region.US_EAST_1).build();
         switch (type) {
             case "manager":
-                instanceId = startManager(id);
+                instanceId = startManager(bucket);
                 break;
             case "worker":
-                instanceId = startWorker(id);
+                instanceId = startWorker(bucket);
                 break;
             default:
                 instanceId = "";
         }
     }
 
-    public String startManager(String id) {
+    public String startManager(String bucket) {
         // Check if the manager already exists
         String manager_id = findManager();
 
         if (manager_id != null) return manager_id;
-        else return createInstance("manager-" + id, Manager.getUserData(id));
+        else return createInstance("manager-" + System.currentTimeMillis(), Manager.getUserData(bucket));
     }
 
-    private String startWorker(String id) {
-        return createInstance("worker-" + id, Worker.getUserData(id));
+    private String startWorker(String bucket) {
+        return createInstance("worker-" + System.currentTimeMillis(), Worker.getUserData(bucket));
     }
 
     private String findManager() {
@@ -61,11 +61,12 @@ public class AMIService {
 
         IamInstanceProfileSpecification role = IamInstanceProfileSpecification.builder()
                 .name("EC2-role")
-//                .name("EMR_EC2_DefaultRole")
                 .build();
 
+        InstanceType type = name.contains("manager") ? InstanceType.T2_MEDIUM : InstanceType.T2_LARGE;
+
         RunInstancesRequest runRequest = RunInstancesRequest.builder()
-                .instanceType(InstanceType.T2_MEDIUM)
+                .instanceType(type)
                 .imageId(amiId)
                 .maxCount(1)
                 .minCount(1)

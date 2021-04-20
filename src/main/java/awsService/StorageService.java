@@ -9,7 +9,6 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable;
-import software.amazon.awssdk.services.sqs.model.CreateQueueRequest;
 
 public class StorageService {
 
@@ -18,17 +17,13 @@ public class StorageService {
 
     public StorageService(String id) {
         s3 = S3Client.builder()
-//				.credentialsProvider(StaticCredentialsProvider.create(credentials))
                 .region(Region.US_EAST_1)
                 .build();
 
-        if (bucketExist(id)) {
-            BUCKET_NAME = id;
-            System.out.println("Connected to bucket: " + id);
-        } else {
-            BUCKET_NAME = "bucket-" + id;
-            createBucket();
-        }
+        BUCKET_NAME = id;
+
+        if (bucketExist(BUCKET_NAME)) System.out.println("Connected to bucket: " + BUCKET_NAME);
+        else createBucket();
     }
 
     private boolean bucketExist(String name) {
@@ -41,7 +36,6 @@ public class StorageService {
     public void createBucket() {
         CreateBucketRequest request = CreateBucketRequest.builder()
                 .bucket(BUCKET_NAME)
-//                .acl(BucketCannedACL.PUBLIC_READ_WRITE)
                 .createBucketConfiguration(
                         CreateBucketConfiguration.builder()
                                 .build())
@@ -49,31 +43,6 @@ public class StorageService {
 
         s3.createBucket(request);
         System.out.println("Bucket created: " + BUCKET_NAME);
-    }
-
-    public void deleteBucket() {
-        // Before deleting a bucket we need to make sure it is empty
-        emptyBucket();
-
-        DeleteBucketRequest deleteBucketRequest = DeleteBucketRequest.builder().bucket(BUCKET_NAME).build();
-        s3.deleteBucket(deleteBucketRequest);
-
-        System.out.println("Bucket deleted: " + BUCKET_NAME);
-    }
-
-    private void emptyBucket() {
-        // Get a list of all the files in the bucket
-        ListObjectsV2Request listReq = ListObjectsV2Request.builder()
-                .bucket(BUCKET_NAME)
-//                .maxKeys(1)
-                .build();
-
-        ListObjectsV2Iterable listRes = s3.listObjectsV2Paginator(listReq);
-        for (S3Object content : listRes.contents()) {
-            DeleteObjectRequest deleteObjectRequest = DeleteObjectRequest.builder().bucket(BUCKET_NAME).key(content.key()).build();
-            s3.deleteObject(deleteObjectRequest);
-            System.out.println("File deleted:\tKey: " + content.key() + "\tsize = " + content.size());
-        }
     }
 
     public void uploadFile(String source, String destination) {
@@ -87,9 +56,57 @@ public class StorageService {
     }
 
     public void downloadFile(String source, String destination) {
-        s3.getObject(GetObjectRequest.builder().bucket(BUCKET_NAME).key(source).build(),
-                ResponseTransformer.toFile(Paths.get(destination)));
+        GetObjectRequest request = GetObjectRequest
+                .builder()
+                .bucket(BUCKET_NAME)
+                .key(source)
+                .build();
+
+        s3.getObject(request, ResponseTransformer.toFile(Paths.get(destination)));
         System.out.println("File downloaded: " + source);
+    }
+
+    public boolean deleteFile(String file) {
+        DeleteObjectRequest request = DeleteObjectRequest.builder()
+                .bucket(BUCKET_NAME)
+                .key(file)
+                .build();
+
+        s3.deleteObject(request);
+        return true;
+    }
+
+    public void deleteBucket() {
+        // Before deleting a bucket we need to make sure it is empty
+        emptyBucket();
+
+        DeleteBucketRequest deleteBucketRequest = DeleteBucketRequest
+                .builder()
+                .bucket(BUCKET_NAME)
+                .build();
+
+        s3.deleteBucket(deleteBucketRequest);
+        System.out.println("Bucket deleted: " + BUCKET_NAME);
+    }
+
+    private void emptyBucket() {
+        // Get a list of all the files in the bucket
+        ListObjectsV2Request listReq = ListObjectsV2Request.builder()
+                .bucket(BUCKET_NAME)
+//                .maxKeys(1)
+                .build();
+
+        ListObjectsV2Iterable listRes = s3.listObjectsV2Paginator(listReq);
+        for (S3Object content : listRes.contents()) {
+            DeleteObjectRequest deleteObjectRequest = DeleteObjectRequest
+                    .builder()
+                    .bucket(BUCKET_NAME)
+                    .key(content.key())
+                    .build();
+
+            s3.deleteObject(deleteObjectRequest);
+            System.out.println("File deleted:\tKey: " + content.key() + "\tsize = " + content.size());
+        }
     }
 
     public String getBucketName() {

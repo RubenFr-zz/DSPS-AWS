@@ -3,6 +3,7 @@ package worker;
 import awsService.SimpleQueueService;
 import awsService.StorageService;
 
+import org.apache.commons.io.FileUtils;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
@@ -36,7 +37,7 @@ public class Worker {
         while (true) {
             try {
                 // Fetch the next pending task (Review)
-                Message task = sqs.nextMessage(new String[]{"Job"});
+                Message task = sqs.nextMessage("Job");
                 String task_name = task.messageAttributes().get("Job").stringValue();
 
                 // Run the review analysis
@@ -44,13 +45,16 @@ public class Worker {
 
                 // Create the report file
                 String fileName = "report-" + System.currentTimeMillis();
-                PrintWriter writer = new PrintWriter(new FileWriter(fileName, true));
+                PrintWriter writer = new PrintWriter(new FileWriter(fileName));
                 for (String report : reports)
                     writer.println(report);
                 writer.close();
 
                 // Upload the report to s3
                 s3.uploadFile(fileName, fileName);
+
+                // Delete the file locally to save memory
+                FileUtils.deleteQuietly(new File(fileName));
 
                 // Send a message that the computation is over with the location of the report on s3
                 Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
@@ -83,11 +87,11 @@ public class Worker {
         }
     }
 
-    public static String getUserData(String id) {
+    public static String getUserData(String bucket) {
         String cmd = "#! /bin/bash" + '\n' +
-                "wget https://bucket-" +id + ".s3.amazonaws.com/services" + '\n' +
-                "wget https://bucket-" +id + ".s3.amazonaws.com/Worker.jar" + '\n' +
-                "java -jar Worker.jar" + '\n';
+                "wget https://" + bucket + ".s3.amazonaws.com/services-worker" + '\n' +
+                "wget https://" + bucket + ".s3.amazonaws.com/Worker.jar" + '\n' +
+                "java -jar Worker.jar > logger" + '\n';
         return Base64.getEncoder().encodeToString(cmd.getBytes());
     }
 }

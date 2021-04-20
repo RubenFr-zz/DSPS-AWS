@@ -11,31 +11,36 @@ public class SimpleQueueService {
     private final SqsClient sqs;
     private final String QUEUE_NAME;
     private final String QUEUE_URL;
+    private final boolean FIFO;
 
     public SimpleQueueService(String id) {
-        String url, name;
+        String url;
         sqs = SqsClient.builder().region(Region.US_EAST_1).build();
 
         try {
             url = getQueueUrl(id);
-            name = id;
             System.out.println("Connected to queue: " + id);
 
         } catch (QueueDoesNotExistException e) {
-            name = "queue-" + id;
-            createQueue(name);
-            url = getQueueUrl(name);
-            System.out.println("Queue created:\n\tid: " + name + "\n\turl: " + url);
+            createQueue(id, id.contains("fifo"));
+            url = getQueueUrl(id);
+            System.out.println("Queue created:\n\tid: " + id + "\n\turl: " + url);
         }
-
-        QUEUE_NAME = name;
+        QUEUE_NAME = id;
         QUEUE_URL = url;
+        FIFO = id.contains("fifo");
     }
 
-    private void createQueue(String queue_name) {
+    private void createQueue(String queue_name, boolean fifo) {
+        Map<QueueAttributeName, String> attributes = new HashMap<>();
+//        attributes.put(QueueAttributeName.FIFO_QUEUE, Boolean.toString(fifo));
+        attributes.put(QueueAttributeName.VISIBILITY_TIMEOUT, "1");
+
         CreateQueueRequest request = CreateQueueRequest.builder()
                 .queueName(queue_name)
+                .attributes(attributes)
                 .build();
+
         sqs.createQueue(request);
     }
 
@@ -47,76 +52,54 @@ public class SimpleQueueService {
         return sqs.getQueueUrl(getQueueRequest).queueUrl();
     }
 
-    public void sendMessage(String message) {
-        Map<String, MessageAttributeValue> attributes = new HashMap<>(1);
-        attributes.put("Name", MessageAttributeValue.builder()
-                .dataType("String")
-                .stringValue("message-" + System.currentTimeMillis())
-                .build()
-        );
-
-        SendMessageRequest send_msg_request = SendMessageRequest.builder()
-                .queueUrl(QUEUE_URL)
-                .messageAttributes(attributes)
-                .messageBody(message)
-//                .delaySeconds(5)
-                .build();
-
-        sqs.sendMessage(send_msg_request);
-        System.out.println("Message sent: " + send_msg_request.messageAttributes().get("Name").stringValue());
-    }
-
     public void sendMessage(SendMessageRequest.Builder message) {
-        SendMessageRequest send_msg_request = message
-                .queueUrl(QUEUE_URL)
-                .delaySeconds(5)
-                .build();
+        SendMessageRequest.Builder messageBuilder = message
+                .queueUrl(QUEUE_URL);
+        if (FIFO) messageBuilder = messageBuilder.messageGroupId("message");
 
-        sqs.sendMessage(send_msg_request);
-        System.out.println("Message sent: " + send_msg_request.messageAttributes().get("Name").stringValue());
+        SendMessageRequest request = messageBuilder.build();
+        sqs.sendMessage(request);
+        System.out.println("Message sent: " + request.messageAttributes().get("Name").stringValue());
     }
 
-    public void sendMessages(LinkedList<String> messages) {
-        LinkedList<SendMessageBatchRequestEntry> entries = new LinkedList<>();
-        Iterator<String> it = messages.iterator();
-        int i = 1;
+    public Message nextMessage(String attribute) {
+        ReceiveMessageResponse response;
 
-        while (it.hasNext()) {
-            entries.add(SendMessageBatchRequestEntry.builder()
-                    .messageBody(it.next())
-                    .id("msg" + i++)
-                    .build());
+        while (true) {
+            while ((response = receiveMessage()).messages().isEmpty()) ;
+            Message message = response.messages().get(0);
+
+            if (message.messageAttributes().containsKey(attribute)) {
+                // When we received a message that fits the requested attribute, we change th visibility time out to give us time to process the message (20 sec)
+                sqs.changeMessageVisibility(ChangeMessageVisibilityRequest.builder()
+                        .queueUrl(QUEUE_URL)
+                        .visibilityTimeout(20)
+                        .receiptHandle(message.receiptHandle())
+                        .build());
+                System.out.println("Message Received: " + message.messageAttributes().get("Name").stringValue());
+                return message;
+            }
         }
-
-        SendMessageBatchRequest send_batch_request = SendMessageBatchRequest.builder()
-                .queueUrl(QUEUE_URL)
-                .entries(entries)
-                .build();
-
-        sqs.sendMessageBatch(send_batch_request);
     }
 
-    public Message nextMessage(String[] attributeNames) {
-        List<Message> messages;
-
-        while(true) {
-            while ((messages = receiveMessage()).isEmpty()) ;
-            for (String attribute : attributeNames)
-                if (messages.get(0).messageAttributes().containsKey(attribute))
-                    return messages.get(0);
-        }
-
-    }
-    private List<Message> receiveMessage() {
-        ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
-                .queueUrl(QUEUE_URL)
-                .messageAttributeNames("All")
-                .maxNumberOfMessages(1)
-                .waitTimeSeconds(10)
-                .visibilityTimeout(10)
+    /**
+     * <p>
+     * Send a ReceiveMessageRequest to the SQS a return the response
+     * </p>
+     *
+     * @return Returns the ReceiveMessageResponse of the request.
+     */
+    private ReceiveMessageResponse receiveMessage() {
+        ReceiveMessageRequest receiveRequest = ReceiveMessageRequest
+                .builder()
+                .queueUrl(QUEUE_URL)            // Queue url
+                .messageAttributeNames("All")   // What attributes to return with the message
+                .maxNumberOfMessages(1)         // How many messages we want to return with the request (in our case 1)
+                .waitTimeSeconds(20)            // The duration (in seconds) for which the call waits for a message to arrive in the queue before returning
+                .visibilityTimeout(1)           // The duration (in seconds) for which the received message will be hidden from other clients
                 .build();
 
-        return sqs.receiveMessage(receiveRequest).messages();
+        return sqs.receiveMessage(receiveRequest);
     }
 
     public void deleteMessage(Message message) {
@@ -125,11 +108,6 @@ public class SimpleQueueService {
                 .receiptHandle(message.receiptHandle())
                 .build();
         sqs.deleteMessage(deleteRequest);
-    }
-
-    public void deleteMessages(List<Message> messages) {
-        for (Message m : messages)
-            deleteMessage(m);
     }
 
     public void deleteQueue() {

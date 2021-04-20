@@ -8,8 +8,6 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
-import worker.ReviewAnalysisHandler;
-
 import org.javatuples.Quartet;
 
 import org.json.simple.parser.JSONParser;
@@ -17,7 +15,6 @@ import org.json.simple.parser.ParseException;
 import org.json.simple.JSONObject;
 
 import java.io.*;
-import java.nio.file.Paths;
 import java.util.*;
 
 import static j2html.TagCreator.*;
@@ -25,14 +22,14 @@ import static j2html.TagCreator.*;
 public class LocalApplication {
 
     public static void main(String[] args) throws IOException, ParseException, InterruptedException {
-//        String inputFileName = args[0];
-//        String outputFileName = args[1];
-//        int N = Integer.parseInt(args[2]);
-//        boolean terminate = args.length == 4;
-//
-//        run(inputFileName, outputFileName, N, terminate);
+        String inputFileName = args[0];
+        String outputFileName = args[1];
+        int N = Integer.parseInt(args[2]);
+        boolean terminate = args.length == 4;
 
-        test();
+        run(inputFileName, outputFileName, N, terminate);
+
+//        test();
 
         System.out.println("\ndone");
     }
@@ -53,7 +50,7 @@ public class LocalApplication {
 //        s3.uploadFile("target/Worker/Task1-dsps.jar", "Worker.jar");
 
         // 3. Upload Input File for Manager
-        s3.uploadFile("Input_Files/" + inputFileName, "input-" + id);
+        s3.uploadFile("Input_Files/" + inputFileName + ".txt", "input-" + id);
 
         // 4. Upload services location to s3
         FileUtils.deleteQuietly(new File("services-manager"));
@@ -69,31 +66,39 @@ public class LocalApplication {
         s3.uploadFile("services-manager", "services-manager");
 
         // 5. Start Manager
-//        AMIService manager = new AMIService(id, "manager");
+        AMIService manager = new AMIService(s3.getBucketName(), "manager");
 
         // 6. Send Review Analysis request to the manager with the file locations
         sendAnalysisRequest(N, terminate, id, sqs);
+        System.out.println("\nRequest sent! Wait for completion...\n");
 
         // 7. Wait for the manager to finish
-        Message response = sqs.nextMessage(new String[]{"Report"});
+        Message response = sqs.nextMessage("Report");
         while (!response.messageAttributes().get("Report").stringValue().equals("task-" + id))
-            response = sqs.nextMessage(new String[]{"Report"});
+            response = sqs.nextMessage("Report");
 
         ExtractResponse responseElements = new ExtractResponse(response.body());
         sqs.deleteMessage(response);
 
         // 8. Download report from S3
-        s3.downloadFile(responseElements.report_location, "Downloaded_Reports/report-JSON-" + id);
+        s3.downloadFile(responseElements.report_location, "report-JSON-" + id);
 
         // 9. Create html report
-        writeReport("Downloaded_Reports/report-JSON-" + id, outputFileName);
+        writeReport("report-JSON-" + id, outputFileName);
 
-        // 10. Check if there is a need to terminate
-//        if (terminate && responseElements.terminated) {
+        // 10. Delete input and output files from s3
+        s3.deleteFile("input-" + id);
+        s3.deleteFile(responseElements.report_location);
+        FileUtils.deleteQuietly(new File("report-JSON-" + id));
+
+        // 11. Check if there is a need to terminate
+        if (terminate && responseElements.terminated) {
 //            s3.deleteBucket();
-//            sqs.deleteQueue();
-//            manager.terminate();
-//        }
+            sqs.deleteQueue();
+            manager.terminate();
+            s3.deleteFile("services-manager");
+            FileUtils.deleteQuietly(new File("services-manager"));
+        }
     }
 
     private static void sendAnalysisRequest(int N, boolean terminate, String id, SimpleQueueService sqs) {
@@ -119,61 +124,6 @@ public class LocalApplication {
                 .messageBody(toSend.toJSONString())
                 .messageAttributes(messageAttributes)
         );
-    }
-
-    private static void testSQS() {
-        // Create new Queue
-        String id = Long.toString(System.currentTimeMillis());
-        SimpleQueueService sqs = new SimpleQueueService(id);
-
-        for (int i = 0; i < 20; i++) sqs.sendMessage("Hello, World " + i + "!");
-
-        Message message = sqs.nextMessage(new String[]{});
-        System.out.println("1 message received: " + message.messageId());
-        System.out.println(message.body());
-        sqs.deleteMessage(message);
-
-        sqs.deleteQueue();
-    }
-
-    private void testS3() {
-        FileUtils.deleteQuietly(new File("received-file.txt"));
-
-        String id = Long.toString(System.currentTimeMillis());
-        StorageService s3 = new StorageService(id);
-        s3.uploadFile("Hello.txt", "test.txt");
-        s3.downloadFile("test.txt", "received-file.txt");
-        s3.deleteBucket();
-    }
-
-    private static void testEC2() {
-        try {
-            String id = String.valueOf(System.currentTimeMillis());
-            AMIService ec2 = new AMIService(id, "manager");
-        } catch (Exception e) {
-            System.err.println(e.getMessage());
-        }
-    }
-
-    private static void testReport() throws IOException, ParseException {
-
-        BufferedReader sourceReader = new BufferedReader(new FileReader("Input files/B01LYRCIPG.txt"));
-        String input = sourceReader.readLine();
-
-        File file = new File("downloaded.txt");
-        System.out.println((file.delete() ? "Formatting file: " : "Creating file: ") + Paths.get("downloaded.txt").getFileName());
-        PrintWriter writer = new PrintWriter(new FileWriter(file));
-
-        ReviewAnalysisHandler handler = new ReviewAnalysisHandler();
-
-        while (input != null) {
-            for (String report : handler.work(input))
-                writer.println(report);
-            input = sourceReader.readLine();
-        }
-        writer.close();
-
-        writeReport("downloaded.txt", "report.html");
     }
 
     private static void writeReport(String source, String destination) throws IOException, ParseException {
@@ -240,11 +190,11 @@ public class LocalApplication {
 
 
         // Save the result in a HTML file.
-        FileUtils.deleteQuietly(new File("Output/" + destination));
-        BufferedWriter writer = new BufferedWriter(new FileWriter(destination));
+        FileUtils.deleteQuietly(new File(destination));
+        BufferedWriter writer = new BufferedWriter(new FileWriter(destination + ".html"));
         writer.write(report);
         writer.close();
-        System.out.println("Report ready: Output/" + destination);
+        System.out.println("Report ready: " + destination + ".html");
     }
 
     private static String isSarcasm(int value1, int value2) {
