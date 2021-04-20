@@ -74,13 +74,18 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 }
 ```
 
+## Ec2 parameters
+In order to know which size the workers instances had to be, we 
+
 ## Security
 
 [A Safer Way to Distribute AWS Credentials to EC2](https://aws.amazon.com/fr/blogs/security/a-safer-way-to-distribute-aws-credentials-to-ec2/)
 
 ## Todo list
-- [ ] Remove the files locally and on s3 once we are done with them
-- [ ] Create 4 queues (one on each side, c.f [SQS Message](#sqs-messages))
-- [ ] Run everything on AWS and wait for a result (try with a few files first!)
-- [ ] Don't forget to modify the jar files on s3
+- [x] Remove the files locally and on s3 once we are done with them
+- [ ] ~Create 4 queues (one on each side, c.f [SQS Message](#sqs-messages))~
+- [x] Run everything on AWS and wait for a result (try with a few files first!)
+- [x] Don't forget to modify the jar files on s3
 - [ ] Separate the manager private classes into different files
+- [ ] Check why that many workers are created for a 50 lines input
+- [ ] Run two localApplications to see if the manager still handler it
