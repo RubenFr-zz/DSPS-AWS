@@ -17,7 +17,7 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 	"terminate": "true or false"
 }
 ```
-> If the terminate field is `true` the manager will terminate all the workers once the task is done. 
+> If the terminate field is `true` the manager will terminate all the workers once the task is done.
 
 ### Manager &rarr; Local
 * Attributes
@@ -75,7 +75,7 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 ```
 
 ## Ec2 parameters
-In order to know which size the workers instances had to be, we 
+In order to know which size the workers instances had to be, we started testing the system with smaller requirements such as T2_SMALL or T2_MEDIUM. However, for both we ran into `Out of Memory` exceptions from the workers when the review they had to process was too large
 
 ## Security
 
