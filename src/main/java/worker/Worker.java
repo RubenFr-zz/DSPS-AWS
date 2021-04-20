@@ -19,8 +19,9 @@ public class Worker {
 
     public static void main(String[] args) throws IOException, ParseException {
         // Get the names of the AWS instances
-        BufferedReader services = new BufferedReader(new FileReader("services-worker"));
-        String line = services.readLine();
+        BufferedReader services_buffer = new BufferedReader(new FileReader("services-worker"));
+        String line = services_buffer.readLine();
+        services_buffer.close();
 
         JSONParser parser = new JSONParser();
         Object o = parser.parse(line);
@@ -28,7 +29,8 @@ public class Worker {
 
         // Initialize the AWS instances
         StorageService s3 = new StorageService((String) jsonObj.get("s3"));
-        SimpleQueueService sqs = new SimpleQueueService((String) jsonObj.get("sqs"));
+        SimpleQueueService sqs_to_manager = new SimpleQueueService((String) jsonObj.get("sqs-to-manager"));
+        SimpleQueueService sqs_from_manager = new SimpleQueueService((String) jsonObj.get("sqs-from-manager"));
 
         // Initialize the Review Analysis Handler
         ReviewAnalysisHandler handler = new ReviewAnalysisHandler();
@@ -37,23 +39,23 @@ public class Worker {
         while (true) {
             try {
                 // Fetch the next pending task (Review)
-                Message task = sqs.nextMessage("Job");
-                String task_name = task.messageAttributes().get("Job").stringValue();
+                Message job = sqs_from_manager.nextMessage();
+                String job_name = job.messageAttributes().get("Name").stringValue();
+                String task_name = job.messageAttributes().get("Job").stringValue();
+                System.out.println("\nJob Received: " + job_name);
 
                 // Run the review analysis
-                LinkedList<String> reports = handler.work(task.body());
+                LinkedList<String> result = handler.work(job.body());
 
                 // Create the report file
-                String fileName = "report-" + System.currentTimeMillis();
+                String fileName = "report-" + job_name;
                 PrintWriter writer = new PrintWriter(new FileWriter(fileName));
-                for (String report : reports)
+                for (String report : result)
                     writer.println(report);
                 writer.close();
 
-                // Upload the report to s3
+                // Upload the report to s3 and delete locally
                 s3.uploadFile(fileName, fileName);
-
-                // Delete the file locally to save memory
                 FileUtils.deleteQuietly(new File(fileName));
 
                 // Send a message that the computation is over with the location of the report on s3
@@ -73,13 +75,15 @@ public class Worker {
                 obj.put("job-report-location", fileName);
                 obj.put("job-id", task_name);
 
-                sqs.sendMessage(SendMessageRequest.builder()
+                sqs_to_manager.sendMessage(SendMessageRequest.builder()
                         .messageBody(obj.toJSONString())
                         .messageAttributes(messageAttributes)
                 );
 
                 // Remove the executed task from the queue
-                sqs.deleteMessage(task);
+                sqs_from_manager.deleteMessage(job);
+                System.out.println("Job Completed: " + job_name);
+
             } catch (Exception e) {
                 System.out.println(e.getMessage());
                 break;

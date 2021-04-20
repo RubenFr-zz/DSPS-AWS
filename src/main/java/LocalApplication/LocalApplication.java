@@ -14,6 +14,7 @@ import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 import org.json.simple.JSONObject;
 
+import java.awt.*;
 import java.io.*;
 import java.util.*;
 
@@ -27,21 +28,16 @@ public class LocalApplication {
         int N = Integer.parseInt(args[2]);
         boolean terminate = args.length == 4;
 
-        run(inputFileName, outputFileName, N, terminate);
-
-//        test();
+        runApplication(inputFileName, outputFileName, N, terminate);
 
         System.out.println("\ndone");
     }
 
-    private static void test() throws IOException, ParseException {
-        writeReport("report-Task-1", "output.txt");
-    }
-
-    private static void run(String inputFileName, String outputFileName, int N, boolean terminate) throws IOException, ParseException {
+    private static void runApplication(String inputFileName, String outputFileName, int N, boolean terminate) throws IOException, ParseException {
         String id = Long.toString(System.currentTimeMillis());
         StorageService s3 = new StorageService("bucket-dsps");
-        SimpleQueueService sqs = new SimpleQueueService("queue-dsps");
+        SimpleQueueService sqs_to_manager = new SimpleQueueService("queue-to-manager");
+        SimpleQueueService sqs_from_manager = new SimpleQueueService("queue-from-manager");
 
         // 1. Upload Manager code to S3
 //        s3.uploadFile("target/Manager/Task1-dsps.jar", "Manager.jar");
@@ -52,12 +48,13 @@ public class LocalApplication {
         // 3. Upload Input File for Manager
         s3.uploadFile("Input_Files/" + inputFileName + ".txt", "input-" + id);
 
-        // 4. Upload services location to s3
+        // 4. Upload services location to s3 for the manager
         FileUtils.deleteQuietly(new File("services-manager"));
 
         JSONObject obj = new JSONObject();
         obj.put("s3", s3.getBucketName());
-        obj.put("sqs", sqs.getQueueName());
+        obj.put("sqs-to-local", sqs_from_manager.getQueueName());
+        obj.put("sqs-from-local", sqs_to_manager.getQueueName());
 
         BufferedWriter writer = new BufferedWriter(new FileWriter("services-manager"));
         writer.write(obj.toJSONString());
@@ -66,24 +63,26 @@ public class LocalApplication {
         s3.uploadFile("services-manager", "services-manager");
 
         // 5. Start Manager
-        AMIService manager = new AMIService(s3.getBucketName(), "manager");
+//        AMIService manager = new AMIService(s3.getBucketName(), "manager");
+        System.out.println("\nManager Running...\n");
 
         // 6. Send Review Analysis request to the manager with the file locations
-        sendAnalysisRequest(N, terminate, id, sqs);
+        sendAnalysisRequest(N, terminate, id, sqs_to_manager);
         System.out.println("\nRequest sent! Wait for completion...\n");
 
         // 7. Wait for the manager to finish
-        Message response = sqs.nextMessage("Report");
+        Message response = sqs_from_manager.nextMessage();
         while (!response.messageAttributes().get("Report").stringValue().equals("task-" + id))
-            response = sqs.nextMessage("Report");
+            response = sqs_from_manager.nextMessage();
 
         ExtractResponse responseElements = new ExtractResponse(response.body());
-        sqs.deleteMessage(response);
+        sqs_from_manager.deleteMessage(response);
 
         // 8. Download report from S3
         s3.downloadFile(responseElements.report_location, "report-JSON-" + id);
 
         // 9. Create html report
+        System.out.println("\nCreating HTML report for: " + "report-JSON-" + id);
         writeReport("report-JSON-" + id, outputFileName);
 
         // 10. Delete input and output files from s3
@@ -93,12 +92,18 @@ public class LocalApplication {
 
         // 11. Check if there is a need to terminate
         if (terminate && responseElements.terminated) {
+            System.out.println("\nTerminating the AWS instances:");
 //            s3.deleteBucket();
-            sqs.deleteQueue();
-            manager.terminate();
+            sqs_from_manager.deleteQueue();
+            sqs_to_manager.deleteQueue();
+//            manager.terminate();
             s3.deleteFile("services-manager");
             FileUtils.deleteQuietly(new File("services-manager"));
         }
+
+        // 12. Open report in browser
+        File htmlFile = new File(outputFileName + ".html");
+        Desktop.getDesktop().browse(htmlFile.toURI());
     }
 
     private static void sendAnalysisRequest(int N, boolean terminate, String id, SimpleQueueService sqs) {
@@ -144,6 +149,7 @@ public class LocalApplication {
             reviews.add(new Quartet<>(link, rating, sentiment, entities));
             jsonLine = sourceReader.readLine();
         }
+        sourceReader.close();
 
         String report =
                 html()

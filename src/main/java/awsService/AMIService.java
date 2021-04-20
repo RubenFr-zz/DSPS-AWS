@@ -9,15 +9,20 @@ import software.amazon.awssdk.services.ec2.model.*;
 
 public class AMIService {
 
-    //    private final String amiId = "ami-0e38cf7446e8264f3";
-    private final String amiId = "ami-0009c3f63fca71e34"; // with java
-
     private final Ec2Client ec2;
     private final String instanceId;
 
-
+    /**
+     * Builder for the {@link AMIService} class
+     *
+     * @param bucket Name of the {@link S3Storage} in which is stored the Worker.jar file for the instance to run
+     * @param type   String ["manager", "worker"]
+     */
     public AMIService(String bucket, String type) {
-        ec2 = Ec2Client.builder().region(Region.US_EAST_1).build();
+        ec2 = Ec2Client.builder()
+                .region(Region.US_EAST_1)   // Region to create/load the instance
+                .build();
+
         switch (type) {
             case "manager":
                 instanceId = startManager(bucket);
@@ -30,18 +35,37 @@ public class AMIService {
         }
     }
 
+    /**
+     * @param bucket Name of the {@link S3Storage} in which is stored the Worker.jar file for the instance to run
+     * @return Unique instance id of the created or connected {@link Ec2Client}
+     */
     public String startManager(String bucket) {
         // Check if the manager already exists
         String manager_id = findManager();
 
-        if (manager_id != null) return manager_id;
-        else return createInstance("manager-" + System.currentTimeMillis(), Manager.getUserData(bucket));
+        if (manager_id != null) {
+            System.out.println("Connected to ");
+            return manager_id;
+        } else return createInstance("manager-" + System.currentTimeMillis(), Manager.getUserData(bucket));
     }
 
+    /**
+     * @param bucket Name of the {@link S3Storage} in which is stored the Worker.jar file for the instance to run
+     * @return Unique instance id of the created {@link Ec2Client}
+     */
     private String startWorker(String bucket) {
         return createInstance("worker-" + System.currentTimeMillis(), Worker.getUserData(bucket));
     }
 
+    /**
+     * Look for a running manager EC2 instance.
+     * If it finds it, return it's instance ID to access it
+     *
+     * @return If a running manager exists, it returns its instance ID
+     * Else null
+     * @see DescribeInstancesRequest
+     * @see DescribeInstancesResponse
+     */
     private String findManager() {
         DescribeInstancesRequest request = DescribeInstancesRequest.builder().build();
         DescribeInstancesResponse response = ec2.describeInstances(request);
@@ -49,46 +73,69 @@ public class AMIService {
         for (Reservation reservation : response.reservations()) {
             for (Instance instance : reservation.instances()) {
                 for (Tag tag : instance.tags())
-                    if (tag.key().equals("Name"))
-                        if (tag.value().contains("manager") && instance.state().name().name().equals("running"))
+                    if (tag.key().equals("Type"))
+                        if (tag.value().equals("manager") && instance.state().name() == InstanceStateName.RUNNING)
                             return instance.instanceId();
             }
         }
         return null;
     }
 
+    /**
+     * Create a new single EC2 instance with two tags Name and Type.
+     * The instance is an image of an existing AMI with Java 8 preinstalled.
+     * The instance type can be T2_MEDIUM (manager) or T2_Large (worker)
+     *
+     * @param name     Name Tag of the instance
+     * @param userData The user data to make available to the instance. Must be base64-encoded text.
+     * @return Unique instance ID of the instance created
+     * @see IamInstanceProfileSpecification
+     * @see RunInstancesRequest
+     * @see RunInstancesResponse
+     */
     public String createInstance(String name, String userData) {
-
+        // IAM role. Gives accreditations to the new instance
         IamInstanceProfileSpecification role = IamInstanceProfileSpecification.builder()
-                .name("EC2-role")
+                .name("EC2-role")   // Contain policies for EC2, SQS and S3
                 .build();
 
+        // The workers need to run on T2_LARGE instances because of the NLP libraries that requires a lot of memory
         InstanceType type = name.contains("manager") ? InstanceType.T2_MEDIUM : InstanceType.T2_LARGE;
 
-        RunInstancesRequest runRequest = RunInstancesRequest.builder()
-                .instanceType(type)
-                .imageId(amiId)
-                .maxCount(1)
-                .minCount(1)
-                .userData(userData)
-                .keyName("ec2-java-ssh")
-                .securityGroupIds("sg-08106b9ce6c226627")
-                .iamInstanceProfile(role)
+        // AMI with Java
+        String amiId = "ami-0009c3f63fca71e34";
+
+        RunInstancesRequest runRequest = RunInstancesRequest
+                .builder()
+                .instanceType(type)                         // Instance size (Medium or Large)
+                .imageId(amiId)                             // AMI
+                .maxCount(1)                                // Max number of instances to create (in our case 1)
+                .minCount(1)                                // Min number of instances to create (in our case 1)
+                .userData(userData)                         // User data -> bash code to run during initialization
+                .keyName("ec2-java-ssh")                    // SSH to access to the instance when created
+                .securityGroupIds("sg-08106b9ce6c226627")   // Security group (what ports and protocols are available)
+                .iamInstanceProfile(role)                   // Policies
                 .build();
 
 
         RunInstancesResponse response = ec2.runInstances(runRequest);
+        String instanceId = response.instances().get(0).instanceId();   // unique ID of the created instance
 
-        String instanceId = response.instances().get(0).instanceId();
-
-        Tag tag = Tag.builder()
+        // Add a Name tag to recognize the created instance in the AWS console
+        Tag nameTag = Tag.builder()
                 .key("Name")
                 .value(name)
                 .build();
 
+        // Add a Type tag (manager or worker)
+        Tag typeTag = Tag.builder()
+                .key("Type")
+                .value(name.split("-")[0])
+                .build();
+
         CreateTagsRequest tagRequest = CreateTagsRequest.builder()
                 .resources(instanceId)
-                .tags(tag)
+                .tags(nameTag, typeTag)
                 .build();
 
         try {
@@ -103,10 +150,17 @@ public class AMIService {
         return instanceId;
     }
 
+    /**
+     * Terminate the {@link Ec2Client} linked to the {@link AMIService} Object
+     *
+     * @see TerminateInstancesRequest
+     */
     public void terminate() {
-        TerminateInstancesRequest terminate_request = TerminateInstancesRequest.builder()
+        TerminateInstancesRequest terminate_request = TerminateInstancesRequest
+                .builder()
                 .instanceIds(instanceId)
                 .build();
+
         ec2.terminateInstances(terminate_request);
         System.out.println("EC2 Instance terminated: " + instanceId);
     }
