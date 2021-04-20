@@ -86,6 +86,7 @@ In order to know which size the workers instances had to be, we
 - [ ] ~Create 4 queues (one on each side, c.f [SQS Message](#sqs-messages))~
 - [x] Run everything on AWS and wait for a result (try with a few files first!)
 - [x] Don't forget to modify the jar files on s3
-- [ ] Separate the manager private classes into different files
-- [ ] Check why that many workers are created for a 50 lines input
+- [ ] ~Separate the manager private classes into different files~
+- [x] Check why that many workers are created for a 50 lines input
 - [ ] Run two localApplications to see if the manager still handler it
+- [ ] Check for scalability 
