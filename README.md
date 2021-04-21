@@ -1,5 +1,5 @@
 # DSPS-AWS1
-First assignement in the course DSPS 2021B - Introduction to AWS in Java
+First assignment in the course DSPS 2021B - Introduction to AWS in Java
 
 ## SQS Messages
 
@@ -76,6 +76,15 @@ First assignement in the course DSPS 2021B - Introduction to AWS in Java
 
 ## Ec2 parameters
 In order to know which size the workers instances had to be, we started testing the system with smaller requirements such as T2_SMALL or T2_MEDIUM. However, for both we ran into `Out of Memory` exceptions from the workers when the review they had to process was too large
+
+#### WGET command on EC2
+The wget utility is an HTTP and FTP client that allows you to download public objects from Amazon S3. It is installed by default in Amazon Linux.
+To download an Amazon S3 object, use the following command, substituting the URL of the object to download:
+```bash 
+wget https://my_bucket.s3.amazonaws.com/path-to-file
+```  
+This method requires that the object you request is __public__; if the object is not public, you receive an __`ERROR 403: Forbidden`__ message. If you receive this error, open the Amazon S3 console and change the permissions of the object to public.  
+[For more information](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AmazonS3.html)
 
 ## Security
 
