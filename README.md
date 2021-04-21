@@ -75,7 +75,8 @@ First assignment in the course DSPS 2021B - Introduction to AWS in Java
 ```
 
 ## Ec2 parameters
-In order to know which size the workers instances had to be, we started testing the system with smaller requirements such as T2_SMALL or T2_MEDIUM. However, for both we ran into `Out of Memory` exceptions from the workers when the review they had to process was too large
+In order to know which size the workers instances had to be, we started testing the system with smaller requirements such as T2_SMALL or T2_MEDIUM.
+However, for both we ran into `Out of Memory` exceptions from the workers when the review they had to process was too large
 
 #### WGET command on EC2
 The wget utility is an HTTP and FTP client that allows you to download public objects from Amazon S3. It is installed by default in Amazon Linux.
@@ -89,6 +90,46 @@ This method requires that the object you request is __public__; if the object is
 ## Security
 
 [A Safer Way to Distribute AWS Credentials to EC2](https://aws.amazon.com/fr/blogs/security/a-safer-way-to-distribute-aws-credentials-to-ec2/)
+
+## Scalability
+
+#### Jobs partition
+The input files are build so that every line is a JSONObject that contains several reviews associated to a specific product.
+From what we have noticed there are usually 10 reviews per JSONObject.  
+However, if somehow one of the JSONObject contains 1000 reviews and another only 5, we don't want for a worker to receive
+such an amount of jobs. For that reason, the manager unfold all the reviews in the input file and sends to the workers several
+job requests with 10 reviews to process (except maybe for the last request that can contain less). That way we know for sure
+every worker will have the same jobs to process.
+
+#### Workers
+As we have seen [above](#jobs-partition), the jobs consist in a collection of 10 reviews. In order to maximize the task completion,
+we decided to attribute to every worker 20 jobs (200 reviews/worker). That is, if a task contains 500 reviews to process,
+3 workers will be created.
+
+#### Issues
+
+* Due to our student account, we are limited to 19 instances (1 manager and 18 workers). To prevent our account to be blocked,
+  we limited the amount of workers to 15.  Hence, if somehow a task requires processing more than 3000 reviews, we won't be able
+  to create more workers, and the amount of jobs per worker would grow (as well as the task's completion time).
+
+
+* Let for a second suppose that the number of EC2 instances that we can crete isn't an issue (we can create as many workers
+  as we want); in this case, if a lot of tasks (millions) are sent to the manager (by millions different local applications), the
+  manager will be overwhelmed very fast as well as the sqs responsible to distribute job requests to the workers.
+
+	* One of the solution would be to add more queues &rarr; more thread on the manager side (one for each queue) &rarr; concurrency issues ?
+	* Maybe there is a need for more managers?
+
+
+* One of the issues we found in the assignment is the jobs' repartition:
+  ```txt
+  If there are k active workers, and the new job requires m workers, then the manager should create m-k new workers, if possible."
+  ```  
+  The problem is that if millions of tasks only require 3 workers (50 jobs per task), these 3 workers will have to deal with 
+  the millions of job alone. For this reason, we keep a count of the `pending job` and when a new task is received
+  by the manager, it will take into account the number of pending job in order to create more workers if necessary.  
+  For instance, there are currently `3 workers` running, `45 jobs pending` and `N = 20`. A new task arrives with `50 new jobs`. In total,
+  there are now `95 jobs pending` for only 3 workers. Hence, `ceil(95/20) - 3 = 2` more workers will be created.
 
 ## Todo list
 - [x] Remove the files locally and on s3 once we are done with them
