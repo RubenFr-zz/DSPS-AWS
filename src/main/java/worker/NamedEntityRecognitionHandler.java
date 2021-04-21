@@ -27,6 +27,7 @@ public class NamedEntityRecognitionHandler {
 
 		Properties props = new Properties();
 		props.put("annotators", "tokenize , ssplit, pos, lemma, ner");
+		props.setProperty("tokenize.options", "untokenizable=noneDelete");
 		NERPipeline = new StanfordCoreNLP(props);
 	}
 

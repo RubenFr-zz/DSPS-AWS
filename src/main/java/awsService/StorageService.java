@@ -66,14 +66,19 @@ public class StorageService {
      * @see PutObjectRequest
      */
     public void uploadFile(String source, String destination) {
-        PutObjectRequest request = PutObjectRequest.builder()
-                .bucket(BUCKET_NAME)
-                .key(destination)
-                .acl(ObjectCannedACL.PUBLIC_READ)     // Make the file available for read/write
-                .build();
+        // Check if file already exists in the bucket
+        try {
+            s3.headObject(HeadObjectRequest.builder().bucket(BUCKET_NAME).key(destination).build());
+        } catch (NoSuchKeyException e){
+            PutObjectRequest request = PutObjectRequest.builder()
+                    .bucket(BUCKET_NAME)
+                    .key(destination)
+                    .acl(ObjectCannedACL.PUBLIC_READ)     // Make the file available for read/write
+                    .build();
 
-        s3.putObject(request, RequestBody.fromFile(new File(source)));
-        System.out.println("File uploaded : " + destination);
+            s3.putObject(request, RequestBody.fromFile(new File(source)));
+            System.out.println("File uploaded : " + destination);
+        }
     }
 
     /**

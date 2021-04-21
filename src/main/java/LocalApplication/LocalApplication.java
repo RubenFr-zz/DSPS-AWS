@@ -17,18 +17,25 @@ import org.json.simple.JSONObject;
 import java.awt.*;
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import static j2html.TagCreator.*;
 
 public class LocalApplication {
 
     public static void main(String[] args) throws IOException, ParseException, InterruptedException {
+        long start = System.currentTimeMillis();
+
         String inputFileName = args[0];
         String outputFileName = args[1];
         int N = Integer.parseInt(args[2]);
         boolean terminate = args.length == 4;
 
         runApplication(inputFileName, outputFileName, N, terminate);
+
+        long end = System.currentTimeMillis();
+        System.out.printf("\nThe task execution took %d min and %d seconds",
+                TimeUnit.MILLISECONDS.toMinutes(end - start), TimeUnit.MILLISECONDS.toSeconds(end - start)%60);
 
         System.out.println("\ndone");
     }
@@ -63,7 +70,7 @@ public class LocalApplication {
         s3.uploadFile("services-manager", "services-manager");
 
         // 5. Start Manager
-//        AMIService manager = new AMIService(s3.getBucketName(), "manager");
+        AMIService manager = new AMIService(s3.getBucketName(), "manager");
         System.out.println("\nManager Running...\n");
 
         // 6. Send Review Analysis request to the manager with the file locations
@@ -71,12 +78,10 @@ public class LocalApplication {
         System.out.println("\nRequest sent! Wait for completion...\n");
 
         // 7. Wait for the manager to finish
-        Message response = sqs_from_manager.nextMessage();
-        while (!response.messageAttributes().get("Report").stringValue().equals("task-" + id))
-            response = sqs_from_manager.nextMessage();
+        Message m1 = getMessage(id, sqs_from_manager);
 
-        ExtractResponse responseElements = new ExtractResponse(response.body());
-        sqs_from_manager.deleteMessage(response);
+        ExtractResponse responseElements = new ExtractResponse(m1.body());
+        sqs_from_manager.deleteMessage(m1);
 
         // 8. Download report from S3
         s3.downloadFile(responseElements.report_location, "report-JSON-" + id);
@@ -91,14 +96,20 @@ public class LocalApplication {
         FileUtils.deleteQuietly(new File("report-JSON-" + id));
 
         // 11. Check if there is a need to terminate
-        if (terminate && responseElements.terminated) {
+        if (terminate) {
+            System.out.println("\nWaiting for Termination...");
+
+            Message m2 = getMessage(id, sqs_from_manager);
+            sqs_from_manager.deleteMessage(m2);
+
+            s3.deleteFile("services-manager");
+            FileUtils.deleteQuietly(new File("services-manager"));
+
             System.out.println("\nTerminating the AWS instances:");
 //            s3.deleteBucket();
             sqs_from_manager.deleteQueue();
             sqs_to_manager.deleteQueue();
-//            manager.terminate();
-            s3.deleteFile("services-manager");
-            FileUtils.deleteQuietly(new File("services-manager"));
+            manager.terminate();
         }
 
         // 12. Open report in browser
@@ -106,18 +117,31 @@ public class LocalApplication {
         Desktop.getDesktop().browse(htmlFile.toURI());
     }
 
+    private static Message getMessage(String id, SimpleQueueService sqs_from_manager) {
+        Message response = sqs_from_manager.nextMessage(10); // 10 sec
+        while (!response.messageAttributes().containsKey("Target")
+                || !response.messageAttributes().get("Target").stringValue().equals("task-" + id))
+            response = sqs_from_manager.nextMessage(10); // 10 sec
+        return response;
+    }
+
     private static void sendAnalysisRequest(int N, boolean terminate, String id, SimpleQueueService sqs) {
         Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
         MessageAttributeValue nameAttribute = MessageAttributeValue.builder()
                 .dataType("String")
-                .stringValue("New Task")
+                .stringValue("New Task from Local-" + id)
                 .build();
         MessageAttributeValue taskAttribute = MessageAttributeValue.builder()
                 .dataType("String")
                 .stringValue("task-" + id)
                 .build();
+        MessageAttributeValue typeAttribute = MessageAttributeValue.builder()
+                .dataType("String")
+                .stringValue("Task")
+                .build();
         messageAttributes.put("Name", nameAttribute);
         messageAttributes.put("Task", taskAttribute);
+        messageAttributes.put("Type", typeAttribute);
 
         JSONObject toSend = new JSONObject();
         toSend.put("review-file-location", "input-" + id);
@@ -229,7 +253,6 @@ public class LocalApplication {
     private static class ExtractResponse {
         protected String report_location;
         protected String task_id;
-        protected boolean terminated;
 
         protected ExtractResponse(String jsonString) throws ParseException {
             JSONParser parser = new JSONParser();
@@ -238,7 +261,6 @@ public class LocalApplication {
 
             report_location = (String) obj.get("report-file-location");
             task_id = (String) obj.get("task-id");
-            terminated = (boolean) obj.get("terminated");
         }
     }
 }

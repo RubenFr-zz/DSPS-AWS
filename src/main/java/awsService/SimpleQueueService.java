@@ -49,12 +49,12 @@ public class SimpleQueueService {
      * @see CreateQueueResponse
      */
     private void createQueue(String queue_name) {
-        Map<QueueAttributeName, String> attributes = new HashMap<>();
-        attributes.put(QueueAttributeName.VISIBILITY_TIMEOUT, "1");
+//        Map<QueueAttributeName, String> attributes = new HashMap<>();
+//        attributes.put(QueueAttributeName.VISIBILITY_TIMEOUT, "1");
 
         CreateQueueRequest request = CreateQueueRequest.builder()
                 .queueName(queue_name)
-                .attributes(attributes)
+//                .attributes(attributes)
                 .build();
 
         sqs.createQueue(request);
@@ -98,11 +98,11 @@ public class SimpleQueueService {
      * @param attribute The attribute we want the next message to contain
      * @return A message pending in the specific queue containing the attribute
      */
-    public Message nextMessage(String attribute) {
+    public Message nextMessage(String attribute, int visibilityTimeout) {
         ReceiveMessageResponse response;
 
         while (true) {
-            while ((response = receiveMessage()).messages().isEmpty()) ;
+            while ((response = receiveMessage(visibilityTimeout)).messages().isEmpty()) ;
             Message message = response.messages().get(0);
 
             if (message.messageAttributes().containsKey(attribute)) {
@@ -123,11 +123,11 @@ public class SimpleQueueService {
      *
      * @return A message pending in the specific queue
      */
-    public Message nextMessage() {
-        ReceiveMessageResponse response = receiveMessage();
+    public Message nextMessage(int visibilityTimeout) {
+        ReceiveMessageResponse response = receiveMessage(visibilityTimeout);
 
         while (response.messages().isEmpty())
-            response = receiveMessage();
+            response = receiveMessage(visibilityTimeout);
         return response.messages().get(0);
     }
 
@@ -137,14 +137,14 @@ public class SimpleQueueService {
      * @return Returns the ReceiveMessageResponse of the request.
      * @see ReceiveMessageRequest
      */
-    private ReceiveMessageResponse receiveMessage() {
+    private ReceiveMessageResponse receiveMessage(int visibilityTimeout) {
         ReceiveMessageRequest receiveRequest = ReceiveMessageRequest
                 .builder()
                 .queueUrl(QUEUE_URL)            // Queue url
                 .messageAttributeNames("All")   // What attributes to return with the message
                 .maxNumberOfMessages(1)         // How many messages we want to return with the request (in our case 1)
                 .waitTimeSeconds(10)            // The duration (in seconds) for which the call waits for a message to arrive in the queue before returning
-                .visibilityTimeout(600)         // The duration (in seconds) for which the received message will be hidden from other clients (10 min)
+                .visibilityTimeout(visibilityTimeout)   // The duration (in seconds) for which the received message will be hidden from other clients
                 .build();
 
         return sqs.receiveMessage(receiveRequest);
@@ -178,7 +178,7 @@ public class SimpleQueueService {
                 .build();
 
         sqs.deleteQueue(deleteRequest);
-        System.out.println("Queue Deleted: " + QUEUE_NAME);
+        System.out.println("\nQueue Deleted: " + QUEUE_NAME);
     }
 
     /**

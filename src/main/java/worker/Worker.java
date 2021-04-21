@@ -10,12 +10,21 @@ import org.json.simple.parser.ParseException;
 
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
+import software.amazon.awssdk.services.sqs.model.QueueDoesNotExistException;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
-public class Worker {
+public class Worker implements Runnable {
+    private static StorageService s3;
+    private static SimpleQueueService sqs_to_manager;
+    private static SimpleQueueService sqs_from_manager;
+
+    private static ReviewAnalysisHandler handler;
 
     public static void main(String[] args) throws IOException, ParseException {
         // Get the names of the AWS instances
@@ -28,67 +37,79 @@ public class Worker {
         JSONObject jsonObj = (JSONObject) o;
 
         // Initialize the AWS instances
-        StorageService s3 = new StorageService((String) jsonObj.get("s3"));
-        SimpleQueueService sqs_to_manager = new SimpleQueueService((String) jsonObj.get("sqs-to-manager"));
-        SimpleQueueService sqs_from_manager = new SimpleQueueService((String) jsonObj.get("sqs-from-manager"));
+        s3 = new StorageService((String) jsonObj.get("s3"));
+        sqs_to_manager = new SimpleQueueService((String) jsonObj.get("sqs-to-manager"));
+        sqs_from_manager = new SimpleQueueService((String) jsonObj.get("sqs-from-manager"));
 
         // Initialize the Review Analysis Handler
-        ReviewAnalysisHandler handler = new ReviewAnalysisHandler();
+        handler = new ReviewAnalysisHandler();
 
-
+        // The while loop run jobs after jobs. If somehow a job fails, it prints the error on the console and try running another job.
+        // If a job failed, that means it hasn't been deleted on the queue (last operation), hence another worker will be able to execute it (after 10 min...)
+        // If the job failed because of a QueueDoesNotExistException, terminate the worker...
         while (true) {
+            Thread t = new Thread(new Worker());
+            t.start();
             try {
-                // Fetch the next pending task (Review)
-                Message job = sqs_from_manager.nextMessage();
-                String job_name = job.messageAttributes().get("Name").stringValue();
-                String task_name = job.messageAttributes().get("Job").stringValue();
-                System.out.println("\nJob Received: " + job_name);
-
-                // Run the review analysis
-                LinkedList<String> result = handler.work(job.body());
-
-                // Create the report file
-                String fileName = "report-" + job_name;
-                PrintWriter writer = new PrintWriter(new FileWriter(fileName));
-                for (String report : result)
-                    writer.println(report);
-                writer.close();
-
-                // Upload the report to s3 and delete locally
-                s3.uploadFile(fileName, fileName);
-                FileUtils.deleteQuietly(new File(fileName));
-
-                // Send a message that the computation is over with the location of the report on s3
-                Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
-                MessageAttributeValue nameAttribute = MessageAttributeValue.builder()
-                        .dataType("String")
-                        .stringValue("New Report")
-                        .build();
-                MessageAttributeValue reportAttribute = MessageAttributeValue.builder()
-                        .dataType("String")
-                        .stringValue(task_name)
-                        .build();
-                messageAttributes.put("Name", nameAttribute);
-                messageAttributes.put("Done", reportAttribute);
-
-                JSONObject obj = new JSONObject();
-                obj.put("job-report-location", fileName);
-                obj.put("job-id", task_name);
-
-                sqs_to_manager.sendMessage(SendMessageRequest.builder()
-                        .messageBody(obj.toJSONString())
-                        .messageAttributes(messageAttributes)
-                );
-
-                // Remove the executed task from the queue
-                sqs_from_manager.deleteMessage(job);
-                System.out.println("Job Completed: " + job_name);
-
-            } catch (Exception e) {
-                System.out.println(e.getMessage());
-                break;
+                t.join();
+            } catch (InterruptedException e1) {
+                System.err.println(e1.getMessage());
+            } catch (QueueDoesNotExistException e2) {
+                System.err.println("\nDisconnected from the queue!");
+                return;
+            } catch (Exception e3) {
+                System.err.println("\n" + e3.getMessage());
             }
         }
+    }
+
+    @Override
+    public void run() {
+
+        // Fetch the next pending task (Review)
+        Message job = sqs_from_manager.nextMessage(1800);    // 30 minutes
+        String job_name = job.messageAttributes().get("Name").stringValue();
+        String sender = job.messageAttributes().get("Sender").stringValue();
+        System.out.printf("\nJob Received: %s\tFrom: %s\n", job_name, sender);
+
+        String result;
+        try {
+            result = handler.work(job.body());
+        } catch (ParseException e) {
+            throw new RuntimeException("\nThe job " + job_name + " failed...\nError: " + e.getMessage());
+        }
+
+        // Send a message with the result
+        assert result != null;
+        sendResult(job_name, sender, result);
+
+        // Remove the executed task from the queue
+        sqs_from_manager.deleteMessage(job);
+        System.out.println("Job Completed: " + job_name);
+    }
+
+    private void sendResult(String job_name, String sender, String result) {
+        Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
+        MessageAttributeValue nameAttribute = MessageAttributeValue.builder()
+                .dataType("String")
+                .stringValue("Job completed:\t" + job_name + "\tFrom: " + sender)
+                .build();
+        MessageAttributeValue reportAttribute = MessageAttributeValue.builder()
+                .dataType("String")
+                .stringValue(sender)
+                .build();
+        MessageAttributeValue doneAttribute = MessageAttributeValue.builder()
+                .dataType("String")
+                .stringValue("Job Completed")
+                .build();
+        messageAttributes.put("Name", nameAttribute);
+        messageAttributes.put("Sender", reportAttribute);
+        messageAttributes.put("Type", doneAttribute);
+
+        sqs_to_manager.sendMessage(SendMessageRequest.builder()
+                .messageBody(result)
+                .messageAttributes(messageAttributes)
+        );
     }
 
     public static String getUserData(String bucket) {

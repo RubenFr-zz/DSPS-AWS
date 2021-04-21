@@ -16,6 +16,7 @@ public class SentimentAnalysisHandler {
 	public SentimentAnalysisHandler() {
 		Properties props = new Properties();
 		props.put("annotators", "tokenize, ssplit, parse, sentiment");
+		props.setProperty("tokenize.options", "untokenizable=noneDelete");
 		sentimentPipeline = new StanfordCoreNLP(props);
 	}
 

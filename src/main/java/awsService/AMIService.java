@@ -44,7 +44,7 @@ public class AMIService {
         String manager_id = findManager();
 
         if (manager_id != null) {
-            System.out.println("Connected to ");
+            System.out.println("Connected to " + manager_id);
             return manager_id;
         } else return createInstance("manager-" + System.currentTimeMillis(), Manager.getUserData(bucket));
     }
@@ -163,5 +163,14 @@ public class AMIService {
 
         ec2.terminateInstances(terminate_request);
         System.out.println("EC2 Instance terminated: " + instanceId);
+    }
+
+    /**
+     * Return the name of the {@link Ec2Client}
+     *
+     * @return The name of the specific EC2 instance
+     */
+    public String getInstanceId() {
+        return instanceId;
     }
 }
