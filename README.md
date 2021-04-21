@@ -1,6 +1,45 @@
 # DSPS-AWS1
 First assignment in the course DSPS 2021B - Introduction to AWS in Java
 
+## Ec2 parameters
+### Options
+|      Type      |  vCPUs | Memory (GiB) |
+| :------------: | :----: | :----------: | 
+|__T2_MICRO__    | 1      | 1            |
+|__T2_SMALL__    | 1      | 2            |
+|__T2_MEDIUM__   | 2      | 4            |
+|__T2_LARGE__    | 2      | 8            |
+|__T2_XLARGE__   | 4      | 16           |
+
+In order to know which type to chose we tested several combinations:
+#### Manager
+The Manager node in its conception isn't supposed to work a lot. It serves as a connection between the Local Application
+and the Workers. In our design, the Manager runs two threads:
+* Thread 1: Deals with the tasks request from the Local Application and the creation of new workers
+* Thread 2: Creates the reports for each task by collecting the responses from the workers.
+
+At our scale a `T2_MICRO` instance would have been enough. However, in order to make our system scalable, we
+had to increase the Memory and decided to go for a `T2_MEDIUM` EC2 instance.
+
+#### Worker
+A Worker node, is by definition conceived to work hard and process as many jobs as possible. In order to complete a job, the
+worker needs to use the `StanfordCoreNLP` dependency which requires a rather large amount of memory. Because we couldn't know
+for sur what "a rather large amount of memory" meant, we had to perform a few tests to see which type could fit the best to
+our design.  
+We started testing the system with smaller requirements such as T2_SMALL or T2_MEDIUM. However, for both we ran into
+`Out of Memory` exceptions from the workers when the review they had to process was too large. Finaly with a `T2_LARGE`
+instance, the workers were able to easily process every kind of reviews.
+
+#### WGET command on EC2
+The wget utility is an HTTP and FTP client that allows you to download public objects from Amazon S3. It is installed by default in Amazon Linux.
+To download an Amazon S3 object, use the following command, substituting the URL of the object to download:
+```bash 
+wget https://my_bucket.s3.amazonaws.com/path-to-file
+```  
+This method requires that the object you request is __public__; if the object is not public, you receive an __`ERROR 403: Forbidden`__
+message. If you receive this error, open the Amazon S3 console and change the permissions of the object to public.  
+[For more information](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AmazonS3.html)
+
 ## SQS Messages
 
 ### Local &rarr; Manager
@@ -74,21 +113,9 @@ First assignment in the course DSPS 2021B - Introduction to AWS in Java
 }
 ```
 
-## Ec2 parameters
-In order to know which size the workers instances had to be, we started testing the system with smaller requirements such as T2_SMALL or T2_MEDIUM.
-However, for both we ran into `Out of Memory` exceptions from the workers when the review they had to process was too large
-
-#### WGET command on EC2
-The wget utility is an HTTP and FTP client that allows you to download public objects from Amazon S3. It is installed by default in Amazon Linux.
-To download an Amazon S3 object, use the following command, substituting the URL of the object to download:
-```bash 
-wget https://my_bucket.s3.amazonaws.com/path-to-file
-```  
-This method requires that the object you request is __public__; if the object is not public, you receive an __`ERROR 403: Forbidden`__ message. If you receive this error, open the Amazon S3 console and change the permissions of the object to public.  
-[For more information](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AmazonS3.html)
-
 ## Security
 
+The security is an important
 [A Safer Way to Distribute AWS Credentials to EC2](https://aws.amazon.com/fr/blogs/security/a-safer-way-to-distribute-aws-credentials-to-ec2/)
 
 ## Scalability
@@ -106,7 +133,7 @@ As we have seen [above](#jobs-partition), the jobs consist in a collection of 10
 we decided to attribute to every worker 20 jobs (200 reviews/worker). That is, if a task contains 500 reviews to process,
 3 workers will be created.
 
-#### Issues
+## Issues encountered
 
 * Due to our student account, we are limited to 19 instances (1 manager and 18 workers). To prevent our account to be blocked,
   we limited the amount of workers to 15.  Hence, if somehow a task requires processing more than 3000 reviews, we won't be able
@@ -121,15 +148,15 @@ we decided to attribute to every worker 20 jobs (200 reviews/worker). That is, i
 	* Maybe there is a need for more managers?
 
 
-* One of the issues we found in the assignment is the jobs' repartition:
+* Another issue we found in the assignment is the jobs' repartition:
   ```txt
-  If there are k active workers, and the new job requires m workers, then the manager should create m-k new workers, if possible."
+  "If there are k active workers, and the new job requires m workers, then the manager should create m-k new workers, if possible"
   ```  
-  The problem is that if millions of tasks only require 3 workers (50 jobs per task), these 3 workers will have to deal with 
+  The problem is that if millions of tasks only require 3 workers (<600 jobs per task), these 3 workers will have to deal with 
   the millions of job alone. For this reason, we keep a count of the `pending job` and when a new task is received
-  by the manager, it will take into account the number of pending job in order to create more workers if necessary.  
-  For instance, there are currently `3 workers` running, `45 jobs pending` and `N = 20`. A new task arrives with `50 new jobs`. In total,
-  there are now `95 jobs pending` for only 3 workers. Hence, `ceil(95/20) - 3 = 2` more workers will be created.
+  by the manager, it will take into account the number of pending jobs in order to create more workers if necessary.  
+  For instance, there are currently `3 workers` running, `450 jobs pending` and `N = 200`. A new task arrives with `500 new jobs`. 
+  In total, there are now `950 jobs pending` for only 3 workers. Hence, `ceil(950/200) - 3 = _2_` more workers will be created.
 
 ## Todo list
 - [x] Remove the files locally and on s3 once we are done with them
@@ -138,5 +165,5 @@ we decided to attribute to every worker 20 jobs (200 reviews/worker). That is, i
 - [x] Don't forget to modify the jar files on s3
 - [ ] ~Separate the manager private classes into different files~
 - [x] Check why that many workers are created for a 50 lines input
-- [ ] Run two localApplications to see if the manager still handler it
-- [ ] Check for scalability 
+- [x] Run two localApplications to see if the manager still handler it
+- [x] Check for scalability 
