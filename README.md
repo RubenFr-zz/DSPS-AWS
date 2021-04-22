@@ -3,7 +3,7 @@
 First assignment in the course DSPS 2021B - Introduction to AWS in Java
 
 <p align="center">
-  <a href="#"><img src="https://miro.medium.com/max/4000/1*b_al7C5p26tbZG4sy-CWqw.png" width="350" title="AWS" target="_blank"/></a>
+  <a href="#dsps-aws1"><img src="https://miro.medium.com/max/4000/1*b_al7C5p26tbZG4sy-CWqw.png" width="350" title="AWS" target="_blank"/></a>
 </p>
 
 1. [EC2 paramters](#ec2-parameters)
