@@ -237,5 +237,5 @@ reviews to process, 3 workers will be created.
 - [x] Don't forget to modify the jar files on s3
 - [ ] ~Separate the manager private classes into different files~
 - [x] Check why that many workers are created for a 50 lines input
-- [ ] Run two localApplications to see if the manager still handler it
-- [ ] Check for scalability 
+- [x] Run two localApplications to see if the manager still handler it
+- [x] Check for scalability 
