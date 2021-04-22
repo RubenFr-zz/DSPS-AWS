@@ -3,7 +3,7 @@
 First assignment in the course DSPS 2021B - Introduction to AWS in Java
 
 <p align="center">
-  <img src="https://miro.medium.com/max/4000/1*b_al7C5p26tbZG4sy-CWqw.png" width="350" title="AWS">
+  <a href="#"><img src="https://miro.medium.com/max/4000/1*b_al7C5p26tbZG4sy-CWqw.png" width="350" title="AWS" target="_blank"/></a>
 </p>
 
 1. [EC2 paramters](#ec2-parameters)
@@ -65,34 +65,34 @@ message. If you receive this error, open the Amazon S3 console and change the pe
 [For more information](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AmazonS3.html)
 
 ## AWS instances used
-> "It is up to you to decide how many queues to use and how to split the jobs among the workers, but, and you will be graded accordingly, 
+> "It is up to you to decide how many queues to use and how to split the jobs among the workers, but, and you will be graded accordingly,
 > your system should strive to work in parallel. It should be as efficient as possible in terms of time and money, and scalable"
 
-One of the hardest decisions in our design was the utilization of AWS instances. AWS is really cheap (although not free), 
+One of the hardest decisions in our design was the utilization of AWS instances. AWS is really cheap (although not free),
 and the more instances/queues/storage/power/... you use, the fastest the jobs will be completed. The whole challenge was to
 weight the tradeoffs and find the most appropriate implementation to complete the reviews' analysis efficiently.
 
-#### Experimentation :  
+#### Experimentation :
 
 1. First, we played the cheap card and used:
-    - 2 SQS (Local &hArr; Manager &hArr; Workers)  
-    - 1 S3 Bucket (Storage Service)
-    - 1 Manager Instance (EC2) and as many workers as necessary (500 reviews/Worker)  
+  - 2 SQS (Local &hArr; Manager &hArr; Workers)
+  - 1 S3 Bucket (Storage Service)
+  - 1 Manager Instance (EC2) and as many workers as necessary (500 reviews/Worker)
 
-    With this configuration, everything worked fine but very slowly (more than 10 minutes / input file). 
+   With this configuration, everything worked fine but very slowly (more than 10 minutes / input file).
 
 
-2. Then, we decided to reduce the number of reviews per Worker to process (200 reviews/Worker). This helped to reduce the 
-running time to a bit less than 7 minutes... __Could we do better?__
-   
-   
+2. Then, we decided to reduce the number of reviews per Worker to process (200 reviews/Worker). This helped to reduce the
+   running time to a bit less than 7 minutes... __Could we do better?__
+
+
 3. During a local run, we realized that it sometimes took quite a long time for the Manager to receive reports from the Workers.  
    The reason was that because all the Workers, and the Manager shared the same queue both for sending and receiving, some Workers
-   could receive messages that wasn't addressed to them. Because of the `VisibilityTimeOut` and other random factors, both 
+   could receive messages that wasn't addressed to them. Because of the `VisibilityTimeOut` and other random factors, both
    the Manager and the Workers could waste a lot of time waiting for messages.  
    In order to solve this problem, we though the tradeoff of adding two more queues (Local &lrarr; Manager &lrarr; Workers),
    was acceptable to reduce unnecessary waits.
-   
+
 Finally, we used the following configuration:
 
 -[x] 4 SQS - Local &lrarr; Manager &lrarr; Workers,
@@ -159,9 +159,9 @@ services with:
 ### Local &rarr; Manager
 
 * Attributes
-    * `Name` : "New Task"
-    * `Task` : unique `taskId` that will be used for the answer
-    * `Type` : "Task"
+  * `Name` : "New Task"
+  * `Task` : unique `taskId` that will be used for the answer
+  * `Type` : "Task"
 
 * Body
 
@@ -180,9 +180,9 @@ services with:
 
 #### Report ready
 * Attributes
-    * `Name` : "Task completed"
-    * `Target` : unique `taskId` transmitted during task request (to target the correct sender)
-    * `Type` : "Report"
+  * `Name` : "Task completed"
+  * `Target` : unique `taskId` transmitted during task request (to target the correct sender)
+  * `Type` : "Report"
 
 * Body
 
@@ -200,15 +200,15 @@ services with:
   * `Type` : "Terminate"
 
 * Body: "Terminate"
-> This message is only sent once when all the Workers instances have terminated and all the LocalApplications that sent a 
+> This message is only sent once when all the Workers instances have terminated and all the LocalApplications that sent a
 > task request before the `terminate` have completed and received their reports
 
 ### Manager &rarr; Worker(s)
 
 * Attributes
-    * `Name` : "New Job"
-    * `Sender` : unique `taskId` __created by the manager__ to keep track of the jobs senders
-    * `Type` : "Job"
+  * `Name` : "New Job"
+  * `Sender` : unique `taskId` __created by the manager__ to keep track of the jobs senders
+  * `Type` : "Job"
 
 * Body
 
@@ -228,9 +228,9 @@ services with:
 ### Worker &rarr; Manager
 
 * Attributes
-    * `Name` : "Job completed:\t" + job_name + "\tFrom: " + sender
-    * `Sender` : Same `Sender` attribute sent by the manager
-    * `Type` : "Job Completed"
+  * `Name` : "Job completed:\t" + job_name + "\tFrom: " + sender
+  * `Sender` : Same `Sender` attribute sent by the manager
+  * `Type` : "Job Completed"
 
 * Body
 
@@ -257,17 +257,17 @@ services with:
   applications), the manager will be overwhelmed very fast as well as the sqs responsible to distribute job requests to
   the workers.
 
-    * One of the solution would be to add more queues &rarr; more thread on the manager side (one for each queue) &rarr;
-      concurrency issues ?
+  * One of the solution would be to add more queues &rarr; more thread on the manager side (one for each queue) &rarr;
+    concurrency issues ?
 
-    * Maybe there is a need for more managers? &rarr; How to keep the scalability of the system ?
+  * Maybe there is a need for more managers? &rarr; How to keep the scalability of the system ?
 
-        * One option is to add a layer of Manager (in a tree manner) a randomly distribute the jobs to different side
+    * One option is to add a layer of Manager (in a tree manner) a randomly distribute the jobs to different side
 
-        * The main Manager will then merge the reports of the two Managers subordinates and send the result to the
-          corresponding local
+    * The main Manager will then merge the reports of the two Managers subordinates and send the result to the
+      corresponding local
 
-        * That would mean 2<sup>layers</sup>-1 Managers' instances. Is that better ?
+    * That would mean 2<sup>layers</sup>-1 Managers' instances. Is that better ?
 
 
 * Another issue we found in the assignment is the jobs' repartition:
