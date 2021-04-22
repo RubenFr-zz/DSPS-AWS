@@ -95,9 +95,9 @@ weight the tradeoffs and find the most appropriate implementation to complete th
 
 Finally, we used the following configuration:
 
--[x] 4 SQS - Local &lrarr; Manager &lrarr; Workers,
--[x] 1 S3 Bucket (Storage Service),
--[x] 1 Manager Instance (EC2) and as many workers as necessary (200 reviews/Worker)
+- [x] 4 SQS - Local &lrarr; Manager &lrarr; Workers,
+- [x] 1 S3 Bucket (Storage Service),
+- [x] 1 Manager Instance (EC2) and as many workers as necessary (200 reviews/Worker)
 
 With this configuration, we reached simulation x5 faster than in the original try (A bit more than 2 minutes for some inputs).
 
