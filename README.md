@@ -2,9 +2,17 @@
 
 First assignment in the course DSPS 2021B - Introduction to AWS in Java
 
-## Ec2 parameters
+1. [EC2 paramters](#ec2-parameters)
+2. [AWS instances used](#aws-instances-used)
+3. [Scalability](#scalability)
+4. [Security](#security)
+5. [Issues encountered](#issues-encountered)
+6. [Todo list](#todo-list)
 
-### Options
+
+## EC2 parameters
+
+### Type
 
 |      Type      |  vCPUs | Memory (GiB) |
 | :------------: | :----: | :----------: | 
@@ -37,7 +45,7 @@ We started testing the system with smaller requirements such as T2_SMALL or T2_M
 `Out of Memory` exceptions from the workers when the review they had to process was too large. Finaly with a `T2_LARGE`
 instance, the workers were able to easily process every kind of reviews.
 
-#### WGET command on EC2
+### WGET command on EC2
 
 The wget utility is an HTTP and FTP client that allows you to download public objects from Amazon S3. It is installed by
 default in Amazon Linux. To download an Amazon S3 object, use the following command, substituting the URL of the object
@@ -51,6 +59,64 @@ This method requires that the object you request is __public__; if the object is
 an __`ERROR 403: Forbidden`__
 message. If you receive this error, open the Amazon S3 console and change the permissions of the object to public.  
 [For more information](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AmazonS3.html)
+
+## AWS instances used
+> "It is up to you to decide how many queues to use and how to split the jobs among the workers, but, and you will be graded accordingly, 
+> your system should strive to work in parallel. It should be as efficient as possible in terms of time and money, and scalable"
+
+One of the hardest decisions in our design was the utilization of AWS instances. AWS is really cheap (although not free), 
+and the more instances/queues/storage/power/... you use, the fastest the jobs will be completed. The whole challenge was to
+weight the tradeoffs and find the most appropriate implementation to complete the reviews' analysis efficiently.
+
+#### Experimentation :  
+
+1. First, we played the cheap card and used:
+    - 2 SQS (Local &hArr; Manager &hArr; Workers)  
+    - 1 S3 Bucket (Storage Service)
+    - 1 Manager Instance (EC2) and as many workers as necessary (500 reviews/Worker)  
+
+    With this configuration, everything worked fine but very slowly (more than 10 minutes / input file). 
+
+
+2. Then, we decided to reduce the number of reviews per Worker to process (200 reviews/Worker). This helped to reduce the 
+running time to a bit less than 7 minutes... __Could we do better?__
+   
+   
+3. During a local run, we realized that it sometimes took quite a long time for the Manager to receive reports from the Workers.  
+   The reason was that because all the Workers, and the Manager shared the same queue both for sending and receiving, some Workers
+   could receive messages that wasn't addressed to them. Because of the `VisibilityTimeOut` and other random factors, both 
+   the Manager and the Workers could waste a lot of time waiting for messages.  
+   In order to solve this problem, we though the tradeoff of adding two more queues (Local &lrarr; Manager &lrarr; Workers),
+   was acceptable to reduce unnecessary waits.
+   
+Finally, we used the following configuration:
+
+-[x] 4 SQS - Local &lrarr; Manager &lrarr; Workers,
+-[x] 1 S3 Bucket (Storage Service),
+-[x] 1 Manager Instance (EC2) and as many workers as necessary (200 reviews/Worker)
+
+With this configuration, we reached simulation x5 faster than in the original try (A bit more than 2 minutes for some inputs).
+
+## Scalability
+
+### Jobs partition
+
+The input files are build so that every line is a JSONObject that contains several reviews associated to a specific
+product. From what we have noticed there are usually 10 reviews per JSONObject.  
+However, if somehow one of the JSONObject contains 1000 reviews and another only 5, we don't want for a worker to
+receive such an amount of jobs. For that reason, the manager unfold all the reviews in the input file and sends to the
+workers several job requests with 10 reviews to process (except maybe for the last request that can contain less). That
+way we know for sure every worker will have the same jobs to process.
+
+### Workers
+
+As we have seen [above](#jobs-partition), the jobs consist in a collection of 10 reviews. In order to maximize the task
+completion, we decided to attribute to every worker 20 jobs (200 reviews/worker). That is, if a task contains 500
+reviews to process, 3 workers will be created.
+
+### Manager // TODO
+
+### Simple Queue Service (SQS) // TODO
 
 ## Security
 
@@ -83,23 +149,6 @@ services with:
 
 [A Safer Way to Distribute AWS Credentials to EC2](https://aws.amazon.com/fr/blogs/security/a-safer-way-to-distribute-aws-credentials-to-ec2/)  
 [10 security items to improve in your AWS account](https://aws.amazon.com/fr/blogs/security/top-10-security-items-to-improve-in-your-aws-account/#:~:text=MFA%20is%20the%20best%20way,you%20can%20enforce%20MFA%20there.)
-
-## Scalability
-
-#### Jobs partition
-
-The input files are build so that every line is a JSONObject that contains several reviews associated to a specific
-product. From what we have noticed there are usually 10 reviews per JSONObject.  
-However, if somehow one of the JSONObject contains 1000 reviews and another only 5, we don't want for a worker to
-receive such an amount of jobs. For that reason, the manager unfold all the reviews in the input file and sends to the
-workers several job requests with 10 reviews to process (except maybe for the last request that can contain less). That
-way we know for sure every worker will have the same jobs to process.
-
-#### Workers
-
-As we have seen [above](#jobs-partition), the jobs consist in a collection of 10 reviews. In order to maximize the task
-completion, we decided to attribute to every worker 20 jobs (200 reviews/worker). That is, if a task contains 500
-reviews to process, 3 workers will be created.
 
 ## SQS Messages
 
