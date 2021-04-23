@@ -12,7 +12,6 @@ import org.json.simple.parser.ParseException;
 
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
-import software.amazon.awssdk.services.sqs.model.QueueDoesNotExistException;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 import java.io.*;
@@ -20,8 +19,8 @@ import java.util.*;
 
 public class Manager {
 
-        private static LinkedList<AMIService> WORKERS_HOLDER;       // Holds the Ec2 instances of the workers running
-//    private static LinkedList<String> WORKERS_HOLDER;       // Holds the Ec2 instances of the workers running
+    private static LinkedList<AMIService> WORKERS_HOLDER;       // Holds the Ec2 instances of the workers running
+//        private static LinkedList<String> WORKERS_HOLDER;       // Holds the Ec2 instances of the workers running
     private static Map<String, PrintWriter> REPORTS_HOLDER;     // Holds the PrintWriter obj associated to each task report
     private static Map<String, String> TASK_HOLDER;             // Holds the id of the tasks sent by the local application
     private static Map<String, Integer> JOBS_HOLDER;            // Holds the number of jobs remaining for each task
@@ -30,11 +29,12 @@ public class Manager {
     private static int tasks_id;                                // Next task-id
     private static int job_id;                                  // Next job-id
 
-    private static StorageService s3;                           // Connection to the s3
-    private static SimpleQueueService sqs_to_local;             // Connection to the manager-local queue
-    private static SimpleQueueService sqs_from_local;           // Connection to the local-manager queue
-    private static SimpleQueueService sqs_to_workers;           // Connection to the manager-workers queue
-    private static SimpleQueueService sqs_from_workers;         // Connection to the workers-manager queue
+    private static String s3_name;                      // Connection to the s3
+    private static String sqs_to_local_name;            // Connection to the manager-local queue
+    private static String sqs_from_local_name;          // Connection to the local-manager queue
+    private static String sqs_to_workers_name;          // Connection to the manager-workers queue
+    private static String sqs_from_workers_name;        // Connection to the workers-manager queue
+    private static String services_filename;            // File location of the services for the workers
 
     private static boolean terminated, stop;
 
@@ -45,8 +45,8 @@ public class Manager {
         TASK_HOLDER = new HashMap<>();
         JOBS_HOLDER = new HashMap<>();
 
-        sqs_to_workers = new SimpleQueueService("queue-to-workers");
-        sqs_from_workers = new SimpleQueueService("queue-from-workers");
+        sqs_to_workers_name = "queue-to-workers";
+        sqs_from_workers_name = "queue-from-workers";
 
         terminate = new Pair<>("","");
 
@@ -66,48 +66,62 @@ public class Manager {
         JSONObject jsonObj = (JSONObject) o;
 
         // Initialize the AWS instances
-        s3 = new StorageService((String) jsonObj.get("s3"));
-        sqs_to_local = new SimpleQueueService((String) jsonObj.get("sqs-to-local"));
-        sqs_from_local = new SimpleQueueService((String) jsonObj.get("sqs-from-local"));
 
-        // Upload services location to s3
-        FileUtils.deleteQuietly(new File("services-worker"));
+        s3_name = (String) jsonObj.get("s3");
+        sqs_to_local_name = (String) jsonObj.get("sqs-to-local");
+        sqs_from_local_name = (String) jsonObj.get("sqs-from-local");
+
+        // Create services file for workers
+        services_filename = "services-worker";
 
         JSONObject obj = new JSONObject();
-        obj.put("s3", s3.getBucketName());
-        obj.put("sqs-to-manager", sqs_from_workers.getQueueName());
-        obj.put("sqs-from-manager", sqs_to_workers.getQueueName());
+        obj.put("s3", s3_name);
+        obj.put("sqs-to-manager", sqs_from_workers_name);
+        obj.put("sqs-from-manager", sqs_to_workers_name);
 
-        BufferedWriter writer = new BufferedWriter(new FileWriter("services-worker"));
+        FileUtils.deleteQuietly(new File(services_filename));
+        BufferedWriter writer = new BufferedWriter(new FileWriter(services_filename));
         writer.write(obj.toJSONString());
         writer.close();
 
-        s3.uploadFile("services-worker", "services-worker");
+        TaskHandler taskHandler = new TaskHandler();
+        JobHandler jobHandler = new JobHandler();
 
-        Thread taskHandlerThread = new Thread(new TaskHandler());
-        Thread jobHandlerThread = new Thread(new JobHandler());
+        Thread taskHandlerThread = new Thread(taskHandler);
+        Thread jobHandlerThread = new Thread(jobHandler);
 
         taskHandlerThread.start();
         jobHandlerThread.start();
 
-        taskHandlerThread.join();
         jobHandlerThread.join();
+        taskHandler.sqs_to_workers.deleteQueue();
     }
 
     private static class TaskHandler implements Runnable {
 
+        private final StorageService s3;
+        private final SimpleQueueService sqs_from_local;
+        protected final SimpleQueueService sqs_to_workers;
+
+        public TaskHandler() {
+            s3 = new StorageService(s3_name);
+            sqs_from_local = new SimpleQueueService(sqs_from_local_name);
+            sqs_to_workers = new SimpleQueueService(sqs_to_workers_name);
+            s3.uploadFile(services_filename, "services-worker");
+        }
         @Override
         public void run() {
             while (!terminated) {
                 // Fetch the next pending task
-                Message task = sqs_from_local.nextMessage(120); // 2 min
+                Message task = sqs_from_local.nextMessages(120,1).get(0); // 2 min
                 try {
                     handleNewTask(task);
                     sqs_from_local.deleteMessage(task);
                 } catch (Exception e) {
-                    if (!terminated) System.err.println("\nERROR: " + e.getMessage());
-                    e.printStackTrace(System.err);
-                    break;
+                    if (!terminated) {
+                        System.err.println("\nERROR: " + e.getMessage());
+                        e.printStackTrace(System.err);
+                    }
                 }
             }
         }
@@ -226,24 +240,36 @@ public class Manager {
 
     private static class JobHandler implements Runnable {
 
+        private final StorageService s3;
+        private final SimpleQueueService sqs_to_local;
+        private final SimpleQueueService sqs_from_workers;
+
+        public JobHandler(){
+            s3 = new StorageService(s3_name);
+            sqs_to_local = new SimpleQueueService(sqs_to_local_name);
+            sqs_from_workers = new SimpleQueueService(sqs_from_workers_name);
+        }
+
         @Override
         public void run() {
             while (!stop) {
                 // Fetch the next pending task (Review)
-                Message job = sqs_from_workers.nextMessage(120); // 2 min
-                try {
-                    handleJobEnding(job);
-                    sqs_from_workers.deleteMessage(job);
-                } catch (Exception e) {
-                    System.err.println("\nERROR:" + e.getMessage());
-                    if (!stop) {
-                        terminated = true;
+                List<Message> jobs = sqs_from_workers.nextMessages(120,10); // 2 min
+
+                for (Message job : jobs) {
+                    try {
+                        handleJobEnding(job);
+                        sqs_from_workers.deleteMessage(job);
+                    } catch (Exception e) {
+                        System.err.println("\nERROR:" + e.getMessage());
+                        if (!stop) {
+                            terminated = true;
+                        }
+                        break;
                     }
-                    break;
                 }
             }
             sqs_from_workers.deleteQueue();
-            sqs_to_workers.deleteQueue();
         }
 
         private void handleJobEnding(Message report) {

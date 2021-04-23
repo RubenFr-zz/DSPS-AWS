@@ -83,7 +83,7 @@ public class SimpleQueueService {
      * @see SendMessageRequest
      * @see SendMessageResponse
      */
-    public void sendMessage(SendMessageRequest.Builder builder) {
+    synchronized public void sendMessage(SendMessageRequest.Builder builder) {
         SendMessageRequest request = builder
                 .queueUrl(QUEUE_URL)
                 .build();
@@ -93,58 +93,68 @@ public class SimpleQueueService {
     }
 
     /**
-     * Return a message pending in the specific queue containing the requested attribute
+     * Return at most {@code maxNumberOfMessages} message(s) pending in the specific queue containing the requested attribute
      *
-     * @param attribute The attribute we want the next message to contain
+     * @param attribute           The duration (in seconds) that the received messages are hidden from subsequent retrieve requests after being retrieved by a ReceiveMessage request.
+     * @param visibilityTimeout   For how long hide the messages from other clients
+     * @param maxNumberOfMessages The maximum number of messages to return. Amazon SQS never returns more messages than this value
+     *                            (however, fewer messages might be returned). Valid values: 1 to 10.
      * @return A message pending in the specific queue containing the attribute
      */
-    public Message nextMessage(String attribute, int visibilityTimeout) {
-        ReceiveMessageResponse response;
+    public List<Message> nextMessages(String attribute, int visibilityTimeout, int maxNumberOfMessages) {
+        ReceiveMessageResponse response = receiveMessage(10, maxNumberOfMessages);
+        List<Message> toReturn = new LinkedList<>();
 
-        while (true) {
-            while ((response = receiveMessage(visibilityTimeout)).messages().isEmpty()) ;
-            Message message = response.messages().get(0);
-
-            if (message.messageAttributes().containsKey(attribute)) {
-                // When we received a message that fits the requested attribute, we change th visibility time out to give us time to process the message (20 sec)
-                sqs.changeMessageVisibility(ChangeMessageVisibilityRequest.builder()
-                        .queueUrl(QUEUE_URL)
-                        .visibilityTimeout(300) // 5 min
-                        .receiptHandle(message.receiptHandle())
-                        .build());
-                System.out.println("Message Received: " + message.messageAttributes().get("Name").stringValue());
-                return message;
+        while (toReturn.isEmpty()) {
+            for (Message message : response.messages()) {
+                if (message.messageAttributes().containsKey(attribute)) {
+                    // When we received a message that fits the requested attribute, we change th visibility time out to give us time to process the message (20 sec)
+                    sqs.changeMessageVisibility(ChangeMessageVisibilityRequest.builder()
+                            .queueUrl(QUEUE_URL)
+                            .visibilityTimeout(visibilityTimeout)
+                            .receiptHandle(message.receiptHandle())
+                            .build());
+                    System.out.println("Message Received: " + message.messageAttributes().get("Name").stringValue());
+                    toReturn.add(message);
+                }
             }
+            response = receiveMessage(10, maxNumberOfMessages);
         }
+        return toReturn;
     }
 
     /**
-     * Return a message pending in the specific queue
+     * Return at most {@code maxNumberOfMessages} message(s) pending in the specific queue
      *
-     * @return A message pending in the specific queue
+     * @param visibilityTimeout   The duration (in seconds) that the received messages are hidden from subsequent retrieve requests after being retrieved by a ReceiveMessage request.
+     * @param maxNumberOfMessages The maximum number of messages to return. Amazon SQS never returns more messages than this value
+     * @return A list of at most {@code maxNumberOfMessages} message(s) pending in the specific queue
      */
-    public Message nextMessage(int visibilityTimeout) {
-        ReceiveMessageResponse response = receiveMessage(visibilityTimeout);
+    public List<Message> nextMessages(int visibilityTimeout, int maxNumberOfMessages) {
+        ReceiveMessageResponse response = receiveMessage(visibilityTimeout, maxNumberOfMessages);
 
         while (response.messages().isEmpty())
-            response = receiveMessage(visibilityTimeout);
-        return response.messages().get(0);
+            response = receiveMessage(visibilityTimeout, maxNumberOfMessages);
+        return response.messages();
     }
 
     /**
-     * Send a ReceiveMessageRequest to the SQS a return the response
+     * Send a {@code ReceiveMessageRequest} to the SQS a return the response
      *
-     * @return Returns the ReceiveMessageResponse of the request.
+     * @param visibilityTimeout   The duration (in seconds) that the received messages are hidden from subsequent retrieve requests after being retrieved by a ReceiveMessage request.
+     * @param maxNumberOfMessages The maximum number of messages to return. Amazon SQS never returns more messages than this value
+     * @return Returns the {@code ReceiveMessageResponse} of the request.
      * @see ReceiveMessageRequest
+     * @see ReceiveMessageResponse
      */
-    private ReceiveMessageResponse receiveMessage(int visibilityTimeout) {
+    private ReceiveMessageResponse receiveMessage(int visibilityTimeout, int maxNumberOfMessages) {
         ReceiveMessageRequest receiveRequest = ReceiveMessageRequest
                 .builder()
-                .queueUrl(QUEUE_URL)            // Queue url
-                .messageAttributeNames("All")   // What attributes to return with the message
-                .maxNumberOfMessages(1)         // How many messages we want to return with the request (in our case 1)
-                .waitTimeSeconds(10)            // The duration (in seconds) for which the call waits for a message to arrive in the queue before returning
-                .visibilityTimeout(visibilityTimeout)   // The duration (in seconds) for which the received message will be hidden from other clients
+                .queueUrl(QUEUE_URL)                        // Queue url
+                .messageAttributeNames("All")               // What attributes to return with the message
+                .maxNumberOfMessages(maxNumberOfMessages)   // How many messages we want to return with the request (in our case 1)
+                .waitTimeSeconds(10)                        // The duration (in seconds) for which the call waits for a message to arrive in the queue before returning
+                .visibilityTimeout(visibilityTimeout)       // The duration (in seconds) for which the received message will be hidden from other clients
                 .build();
 
         return sqs.receiveMessage(receiveRequest);

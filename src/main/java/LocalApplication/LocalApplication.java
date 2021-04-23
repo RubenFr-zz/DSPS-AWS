@@ -118,10 +118,10 @@ public class LocalApplication {
     }
 
     private static Message getMessage(String id, SimpleQueueService sqs_from_manager) {
-        Message response = sqs_from_manager.nextMessage(10); // 10 sec
+        Message response = sqs_from_manager.nextMessages(10,1).get(0); // 10 sec
         while (!response.messageAttributes().containsKey("Target")
                 || !response.messageAttributes().get("Target").stringValue().equals("task-" + id))
-            response = sqs_from_manager.nextMessage(10); // 10 sec
+            response = sqs_from_manager.nextMessages(10,1).get(0); // 10 sec
         return response;
     }
 
