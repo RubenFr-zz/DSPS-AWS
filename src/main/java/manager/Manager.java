@@ -143,15 +143,17 @@ public class Manager {
         }
 
         private void handleLocalTermination(Message message) {
-            System.out.println("Receipt received from: " + message.body());
+            System.out.println("\nReceipt received from: " + message.body());
             ACTIVE_TASK.remove(message.body());
 
             if (ACTIVE_TASK.isEmpty() && stop_accepting_new_tasks) {
+                System.out.println("\nEvery Local Applications received their reports.. \nTermination requested from " + terminate.getValue1());
                 System.out.println("\nSending Termination Message to " + terminate.getValue1());
-                System.out.println("\ndone");
-                s3.uploadFile("logger", "logger-manager.txt");
                 sendTerminatedMessage();
                 stop_manager = true;
+
+                System.out.println("\nGracefully Terminated!");
+                s3.uploadFile("logger", "logger-manager.txt");
             }
         }
 

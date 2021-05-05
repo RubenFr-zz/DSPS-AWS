@@ -1,18 +1,48 @@
-# DSPS-AWS1
+# DSPS - Assignment 1
 
 First assignment in the course DSPS 2021B - Introduction to AWS in Java
 
 <p align="center">
-  <a href="#dsps-aws1"><img src="https://miro.medium.com/max/4000/1*b_al7C5p26tbZG4sy-CWqw.png" width="350" title="AWS" target="_blank"/></a>
+  <a href="#dsps---assignment-1"><img src="https://miro.medium.com/max/4000/1*b_al7C5p26tbZG4sy-CWqw.png" width="350" title="AWS" target="_blank"/></a>
 </p>
 
-1. [EC2 parameters](#ec2-parameters)
+1. [Description](#description)
+2. [Run + Results](#run--results)
+2. [EC2 parameters](#ec2-parameters)
 2. [AWS Services Used](#aws-services-used)
 3. [Scalability](#scalability)
 4. [Security](#security)
 5. [Issues encountered](#issues-encountered)
 6. [Todo list](#todo-list)
 
+## Description
+
+In this assignment we were asked to design a system to process a lots of reviews of Amazon products and analyze the sarcasm
+level of each review.
+To do so, we developed three level:
+1. Local Application - Application that sends reviews to be processed and format the analysis into an HTML file (Run Locally)
+2. Manager - Receives the reviews, dispatch them to different workers and collect the results before sending them to the local app (Run on an AWS instance)
+3. Worker - Receives reviews from the manager, analyze them (sentiment + entities) and send the report back to the manager (Run on an AWS instance)
+
+## Run & Results
+
+To run a Local Application:
+```bash
+java -jar LocalApplication.jar <input_file> <output_file> N [Terminate]
+```
+Where: 
+- _LocalApplication.jar_ is the compiled `jar` of the LocalApplication.java file.
+- input_file is the name of an input file (without extension) located in `Input_Files/<input_file>.txt` (the Input_Files directory must be in the same directory as the LocalApplication.jar)
+- output_file is the name of an output file (without extension) where the report will be written (The extension will always be `.html`)
+- N is the number of reviews per worker
+- Terminate is an __optional__ argument that means that once the task is over, all the instances must be shut down.
+
+### Results
+You can find the outputs of the 5 input files in the directory `Output_Files`, a screen capture of the simulation of 
+the 5 input files at the same time as well as a file `logger-manager.txt` containing the console of the Manager during the run. 
+
+As we can see, processing the whole 5 files (2450 reviews) took 5 min and 19 seconds (taking into account that starting EC2 
+instances takes time as well as initializing the workers (1 minute))
 
 ## EC2 parameters
 

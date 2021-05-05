@@ -257,7 +257,7 @@ public class LocalApplication {
     }
 
     private static String isSarcasm(int value1, int value2) {
-        return Math.abs(value1 - value2) > 1 ? "No Sarcasm" : "Sarcasm";
+        return Math.abs(value1 - value2) > 1 ? "Sarcasm" : "No Sarcasm";
     }
 
     private static String getColor(int sentiment) {
