@@ -356,7 +356,7 @@ services with:
 - What about persistence? 
 > The system can't finish if one review is still in process. If somehow a review takes too much time to complete (more than 30 minutes), another worker will be able to perform it.
 
--What if a node dies?
+- What if a node dies?
 > Every worker has at all time 3 threads running. If a thread dies (unexpected error), another thread will be started. If the EC2 instance fails (not realistic, we talk about a real computer), the manager should be able to detect it (checking the status of each worker) and start another EC2 instance accordingly.
 
  - What if a node stalls for a while? 
@@ -383,7 +383,7 @@ services with:
 - Is your manager doing more work than he's supposed to? Have you made sure each part of your system has properly defined tasks? Did you mix their tasks?
 > Every one is doing its job. The local application sends the task and create an html file with the report. The Manager receives tasks from locals and send jobs to the Workers. It then add the responses from the workers to the corresponding reports and when all the jobs have been completed, send the final report to the corresponding local. Finaly, the workers only process reviews and send responses to the manager.
 
-- Lastly, are you sure you understand what distributed means? Is there anything in your system awaiting another?
+- Are you sure you understand what distributed means? Is there anything in your system awaiting another?
 > Except for waiting the others to finish their jobs (manager waits for workers to send responses and local for manager to send the report...) all the system is distributed thanks to SQS. A worker doesn't know the other workers.
 
 ## Todo list
