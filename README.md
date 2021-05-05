@@ -6,7 +6,7 @@ First assignment in the course DSPS 2021B - Introduction to AWS in Java
   <a href="#dsps-aws1"><img src="https://miro.medium.com/max/4000/1*b_al7C5p26tbZG4sy-CWqw.png" width="350" title="AWS" target="_blank"/></a>
 </p>
 
-1. [EC2 paramters](#ec2-parameters)
+1. [EC2 parameters](#ec2-parameters)
 2. [AWS Services Used](#aws-services-used)
 3. [Scalability](#scalability)
 4. [Security](#security)
