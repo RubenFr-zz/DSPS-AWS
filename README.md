@@ -13,7 +13,8 @@ First assignment in the course DSPS 2021B - Introduction to AWS in Java
 3. [Scalability](#scalability)
 4. [Security](#security)
 5. [Issues encountered](#issues-encountered)
-6. [Todo list](#todo-list)
+6. [Mandatory Requirements](#mandatory-equirements)
+7. [Todo list](#todo-list)
 
 ## Description
 
@@ -343,6 +344,47 @@ services with:
   For instance, there are currently `2 workers` running, `450 jobs pending` and `N = 400`. A new task arrives
   with `900 new jobs`. In total, there are now `1350 jobs pending` for only 2 workers. Hence, `ceil(1350/400) - 2 = 2`
   more workers will be created.
+
+## Mandatory Requirements
+
+- Did you think for more than 2 minutes about security? 
+> Yes. See [Security](#security)
+
+- Did you think about scalability?
+> Yes. See [Scalability](#scalability)
+
+- What about persistence? 
+> The system can't finish if one review is still in process. If somehow a review takes too much time to complete (more than 30 minutes), another worker will be able to perform it.
+
+-What if a node dies?
+> Every worker has at all time 3 threads running. If a thread dies (unexpected error), another thread will be started. If the EC2 instance fails (not realistic, we talk about a real computer), the manager should be able to detect it (checking the status of each worker) and start another EC2 instance accordingly.
+
+ - What if a node stalls for a while? 
+ > We didn't find a way to deal with this problem. Theoritcally, for a node to stall, all 3 threads must stall...
+
+- What about broken communications? 
+> The manager itself sends the information to connect to the queues. If a worker is disconnected from a queue, an error will be thrown, the thread terminated and another thread will be started at its place, reconnecting to the correct instances (redownloading the file containing the queues information from S3).
+
+ - Threads in your application, when is it a good idea? When is it bad? Invest time to think about threads in your application!
+ > See [Scalability](#scalability)
+
+ - Did you run more than one client at the same time?
+ > Yes. You can see the screen capture in the `Output_Files` folder, as well as the manager console (At the end it should be written `Gracefully Terminated`).
+
+- Did you manage the termination process?
+> Yes. The manager deletes the workers and their queues. The local that requested the termination deletes the Manager and the queues. At the end only the two `jar` files (Manager.jar and Worker.jar), and the console of the manager should be on the S3 bucket. (We could delete the S3 bucket during the termination but that would mean every time uploading the jars to the bucket which takes a lot of time).
+
+- Did you take in mind the system limitations that we are using?
+> Yes. We limited the number of instances running at the same time and [more](#issues-encountered).
+
+- Are all your workers working hard? Or some are slacking? Why?
+> Yes. It is possible sometime a specific thread of a worker is blocked on a large review and blocks the process but there are two more threads that works.
+
+- Is your manager doing more work than he's supposed to? Have you made sure each part of your system has properly defined tasks? Did you mix their tasks?
+> Every one is doing its job. The local application sends the task and create an html file with the report. The Manager receives tasks from locals and send jobs to the Workers. It then add the responses from the workers to the corresponding reports and when all the jobs have been completed, send the final report to the corresponding local. Finaly, the workers only process reviews and send responses to the manager.
+
+- Lastly, are you sure you understand what distributed means? Is there anything in your system awaiting another?
+> Except for waiting the others to finish their jobs (manager waits for workers to send responses and local for manager to send the report...) all the system is distributed thanks to SQS. A worker doesn't know the other workers.
 
 ## Todo list
 
