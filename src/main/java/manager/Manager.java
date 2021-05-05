@@ -20,10 +20,10 @@ import java.util.*;
 public class Manager {
 
     private static LinkedList<AMIService> WORKERS_HOLDER;       // Holds the Ec2 instances of the workers running
-//        private static LinkedList<String> WORKERS_HOLDER;       // Holds the Ec2 instances of the workers running
     private static Map<String, PrintWriter> REPORTS_HOLDER;     // Holds the PrintWriter obj associated to each task report
     private static Map<String, String> TASK_HOLDER;             // Holds the id of the tasks sent by the local application
     private static Map<String, Integer> JOBS_HOLDER;            // Holds the number of jobs remaining for each task
+    private static LinkedList<String> ACTIVE_TASK;              // List of the class currently running
     private static int jobs_pending;                            // Number of jobs pending for execution
     private static Pair<String, String> terminate;              // Holds the task's name that required termination
     private static int tasks_id;                                // Next task-id
@@ -36,7 +36,7 @@ public class Manager {
     private static String sqs_from_workers_name;        // Connection to the workers-manager queue
     private static String services_filename;            // File location of the services for the workers
 
-    private static boolean terminated, stop;
+    private static boolean stop_accepting_new_tasks, stop_receiving_from_workers, stop_manager;
 
     public static void main(String[] args) throws IOException, ParseException, InterruptedException {
         // Initialize
@@ -44,17 +44,19 @@ public class Manager {
         REPORTS_HOLDER = new HashMap<>();
         TASK_HOLDER = new HashMap<>();
         JOBS_HOLDER = new HashMap<>();
+        ACTIVE_TASK = new LinkedList<>();
 
         sqs_to_workers_name = "queue-to-workers";
         sqs_from_workers_name = "queue-from-workers";
 
-        terminate = new Pair<>("","");
+        terminate = new Pair<>("", "");
 
         jobs_pending = 0;
         tasks_id = 1;
         job_id = 1;
-        terminated = false;
-        stop = false;
+        stop_accepting_new_tasks = false;
+        stop_receiving_from_workers = false;
+        stop_manager = false;
 
         // Get the names of the AWS instances
         BufferedReader services_buffer = new BufferedReader(new FileReader("services-manager"));
@@ -93,36 +95,63 @@ public class Manager {
         taskHandlerThread.start();
         jobHandlerThread.start();
 
+        taskHandlerThread.join();
         jobHandlerThread.join();
-        taskHandler.sqs_to_workers.deleteQueue();
+        System.out.println("\nGracefully Terminated!");
     }
 
     private static class TaskHandler implements Runnable {
 
         private final StorageService s3;
+        private final SimpleQueueService sqs_to_local;
         private final SimpleQueueService sqs_from_local;
-        protected final SimpleQueueService sqs_to_workers;
+        private final SimpleQueueService sqs_to_workers;
 
         public TaskHandler() {
             s3 = new StorageService(s3_name);
+            sqs_to_local = new SimpleQueueService(sqs_to_local_name);
             sqs_from_local = new SimpleQueueService(sqs_from_local_name);
             sqs_to_workers = new SimpleQueueService(sqs_to_workers_name);
             s3.uploadFile(services_filename, "services-worker");
         }
+
         @Override
         public void run() {
-            while (!terminated) {
+            while (!stop_manager) {
                 // Fetch the next pending task
-                Message task = sqs_from_local.nextMessages(120,1).get(0); // 2 min
+                Message message = sqs_from_local.nextMessages(120, 1).get(0); // 2 min
                 try {
-                    handleNewTask(task);
-                    sqs_from_local.deleteMessage(task);
+                    switch (message.messageAttributes().get("Type").stringValue()) {
+                        case "Task":
+                            if (!stop_accepting_new_tasks) handleNewTask(message);
+                            break;
+                        case "Receipt":
+                            handleLocalTermination(message);
+                            break;
+                        default:
+                            System.err.println("Wrong message form:" + message.body());
+                    }
+                    sqs_from_local.deleteMessage(message);
                 } catch (Exception e) {
-                    if (!terminated) {
+                    if (!stop_accepting_new_tasks) {
                         System.err.println("\nERROR: " + e.getMessage());
                         e.printStackTrace(System.err);
                     }
                 }
+            }
+            sqs_to_workers.deleteQueue();
+        }
+
+        private void handleLocalTermination(Message message) {
+            System.out.println("Receipt received from: " + message.body());
+            ACTIVE_TASK.remove(message.body());
+
+            if (ACTIVE_TASK.isEmpty() && stop_accepting_new_tasks) {
+                System.out.println("\nSending Termination Message to " + terminate.getValue1());
+                System.out.println("\ndone");
+                s3.uploadFile("logger", "logger-manager.txt");
+                sendTerminatedMessage();
+                stop_manager = true;
             }
         }
 
@@ -141,6 +170,7 @@ public class Manager {
 
             // Save task name for the response
             TASK_HOLDER.put(task_id, content.task_id);
+            ACTIVE_TASK.add(content.task_id);
 
             //Check if the task require termination at its completion
             if (content.terminate) terminate = new Pair<>(task_id, content.task_id);
@@ -158,9 +188,8 @@ public class Manager {
             System.out.printf("\nCurrently running: %d worker(s)\n%d jobs have been sent (total: %d)-> %d additional worker(s) are required\n",
                     WORKERS_HOLDER.size(), numberOfJobs, jobs_pending, number_of_workers_top_create);
 
-            for (int i = 0; i < Math.min(number_of_workers_top_create, 15 - WORKERS_HOLDER.size()); i++) {
+            for (int i = 0; i < Math.min(number_of_workers_top_create, 10 - WORKERS_HOLDER.size()); i++) {
                 System.out.println("\nCreating Worker " + (i + 1));
-//                String new_worker = "worker-" + System.currentTimeMillis();
                 AMIService new_worker = new AMIService(s3.getBucketName(), "worker");
                 WORKERS_HOLDER.add(new_worker);
             }
@@ -219,6 +248,31 @@ public class Manager {
             );
         }
 
+        private void sendTerminatedMessage() {
+            Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
+            MessageAttributeValue taskNameAttribute = MessageAttributeValue.builder()
+                    .dataType("String")
+                    .stringValue("Terminated")
+                    .build();
+            MessageAttributeValue reportAttribute = MessageAttributeValue.builder()
+                    .dataType("String")
+                    .stringValue(terminate.getValue1())
+                    .build();
+            MessageAttributeValue terminateAttribute = MessageAttributeValue.builder()
+                    .dataType("String")
+                    .stringValue("Terminate")
+                    .build();
+            messageAttributes.put("Name", taskNameAttribute);
+            messageAttributes.put("Target", reportAttribute);
+            messageAttributes.put("Terminate", terminateAttribute);
+
+            sqs_to_local.sendMessage(SendMessageRequest.builder()
+                    .messageBody("Terminate")
+                    .messageAttributes(messageAttributes)
+                    .delaySeconds(10)       // To give time to the manager to gracefully finish
+            );
+        }
+
         private static class ExtractContent {
             protected String review_file_location;
             protected String task_id;
@@ -244,7 +298,7 @@ public class Manager {
         private final SimpleQueueService sqs_to_local;
         private final SimpleQueueService sqs_from_workers;
 
-        public JobHandler(){
+        public JobHandler() {
             s3 = new StorageService(s3_name);
             sqs_to_local = new SimpleQueueService(sqs_to_local_name);
             sqs_from_workers = new SimpleQueueService(sqs_from_workers_name);
@@ -252,9 +306,9 @@ public class Manager {
 
         @Override
         public void run() {
-            while (!stop) {
+            while (!stop_receiving_from_workers) {
                 // Fetch the next pending task (Review)
-                List<Message> jobs = sqs_from_workers.nextMessages(120,10); // 2 min
+                List<Message> jobs = sqs_from_workers.nextMessages(120, 10); // 2 min
 
                 for (Message job : jobs) {
                     try {
@@ -262,8 +316,8 @@ public class Manager {
                         sqs_from_workers.deleteMessage(job);
                     } catch (Exception e) {
                         System.err.println("\nERROR:" + e.getMessage());
-                        if (!stop) {
-                            terminated = true;
+                        if (!stop_receiving_from_workers) {
+                            stop_accepting_new_tasks = true;
                         }
                         break;
                     }
@@ -305,19 +359,14 @@ public class Manager {
             JOBS_HOLDER.remove(task_id);
 
             // By setting the terminated to true, the thread that accepts new tasks will be interrupted
-            if (terminate.getValue0().equals(task_id)) terminated = true;
+            if (terminate.getValue0().equals(task_id)) stop_accepting_new_tasks = true;
 
             sendCompletedTaskMessage(task_id);
             TASK_HOLDER.remove(task_id);
 
-            if (terminated && jobs_pending == 0) {
+            if (stop_accepting_new_tasks && jobs_pending == 0) {
                 terminateWorkers();
-                System.out.println("\nSending Termination Message to " + terminate.getValue1());
-                System.out.println("\ndone");
-                s3.uploadFile("logger", "logger-manager.txt");
-
-                sendTerminatedMessage();
-                stop = true;
+                stop_receiving_from_workers = true;
             }
         }
 
@@ -354,36 +403,9 @@ public class Manager {
             FileUtils.deleteQuietly(new File("services-worker"));
 
             for (AMIService worker : WORKERS_HOLDER) {
-//            for (String worker : WORKERS_HOLDER) {
-//                System.out.println("\nTerminating worker: " + worker);
                 System.out.println("\nTerminating worker: " + worker.getInstanceId());
                 worker.terminate();
             }
-        }
-
-        private void sendTerminatedMessage() {
-            Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
-            MessageAttributeValue taskNameAttribute = MessageAttributeValue.builder()
-                    .dataType("String")
-                    .stringValue("Terminated")
-                    .build();
-            MessageAttributeValue reportAttribute = MessageAttributeValue.builder()
-                    .dataType("String")
-                    .stringValue(terminate.getValue1())
-                    .build();
-            MessageAttributeValue terminateAttribute = MessageAttributeValue.builder()
-                    .dataType("String")
-                    .stringValue("Terminate")
-                    .build();
-            messageAttributes.put("Name", taskNameAttribute);
-            messageAttributes.put("Target", reportAttribute);
-            messageAttributes.put("Terminate", terminateAttribute);
-
-            sqs_to_local.sendMessage(SendMessageRequest.builder()
-                    .messageBody("Terminate")
-                    .messageAttributes(messageAttributes)
-                    .delaySeconds(30)   // To give time to the manager to gracefully finish
-            );
         }
     }
 

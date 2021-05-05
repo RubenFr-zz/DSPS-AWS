@@ -37,7 +37,7 @@ public class LocalApplication {
         System.out.printf("\nThe task execution took %d min and %d seconds",
                 TimeUnit.MILLISECONDS.toMinutes(end - start), TimeUnit.MILLISECONDS.toSeconds(end - start)%60);
 
-        System.out.println("\ndone");
+        System.out.println("\ndone.");
     }
 
     private static void runApplication(String inputFileName, String outputFileName, int N, boolean terminate) throws IOException, ParseException {
@@ -75,7 +75,7 @@ public class LocalApplication {
 
         // 6. Send Review Analysis request to the manager with the file locations
         sendAnalysisRequest(N, terminate, id, sqs_to_manager);
-        System.out.println("\nRequest sent! Wait for completion...\n");
+        System.out.println("\nTask sent! Wait for completion...\n");
 
         // 7. Wait for the manager to finish
         Message m1 = getMessage(id, sqs_from_manager);
@@ -95,12 +95,17 @@ public class LocalApplication {
         s3.deleteFile(responseElements.report_location);
         FileUtils.deleteQuietly(new File("report-JSON-" + id));
 
-        // 11. Check if there is a need to terminate
+        // 11. Send a receipt acknowledgement to the manager
+        System.out.println("\nSending Receipt Acknowledgement...");
+        sendAck(id, sqs_to_manager);
+
+        // 12. Check if there is a need to terminate
         if (terminate) {
             System.out.println("\nWaiting for Termination...");
 
             Message m2 = getMessage(id, sqs_from_manager);
             sqs_from_manager.deleteMessage(m2);
+            System.out.println("Termination message Received!");
 
             s3.deleteFile("services-manager");
             FileUtils.deleteQuietly(new File("services-manager"));
@@ -151,6 +156,30 @@ public class LocalApplication {
 
         sqs.sendMessage(SendMessageRequest.builder()
                 .messageBody(toSend.toJSONString())
+                .messageAttributes(messageAttributes)
+        );
+    }
+
+    private static void sendAck(String id,SimpleQueueService sqs) {
+        Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
+        MessageAttributeValue nameAttribute = MessageAttributeValue.builder()
+                .dataType("String")
+                .stringValue("Receipt from Local-" + id)
+                .build();
+        MessageAttributeValue receiptAttribute = MessageAttributeValue.builder()
+                .dataType("String")
+                .stringValue("task-" + id)
+                .build();
+        MessageAttributeValue typeAttribute = MessageAttributeValue.builder()
+                .dataType("String")
+                .stringValue("Receipt")
+                .build();
+        messageAttributes.put("Name", nameAttribute);
+        messageAttributes.put("Receipt", receiptAttribute);
+        messageAttributes.put("Type", typeAttribute);
+
+        sqs.sendMessage(SendMessageRequest.builder()
+                .messageBody("task-" + id)
                 .messageAttributes(messageAttributes)
         );
     }
@@ -228,7 +257,7 @@ public class LocalApplication {
     }
 
     private static String isSarcasm(int value1, int value2) {
-        return value1 == value2 ? "No Sarcasm" : "Sarcasm";
+        return Math.abs(value1 - value2) > 1 ? "No Sarcasm" : "Sarcasm";
     }
 
     private static String getColor(int sentiment) {

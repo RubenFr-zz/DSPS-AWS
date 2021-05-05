@@ -142,8 +142,8 @@ public class AMIService {
             ec2.createTags(tagRequest);
             System.out.printf("Successfully started EC2 instance %s based on AMI %s\n", name, amiId);
 
-        } catch (Ec2Exception e) {
-            System.err.println(e.getMessage());
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
             System.exit(1);
         }
 
@@ -162,7 +162,7 @@ public class AMIService {
                 .build();
 
         ec2.terminateInstances(terminate_request);
-        System.out.println("EC2 Instance terminated: " + instanceId);
+        System.out.println("\nEC2 Instance terminated: " + instanceId);
     }
 
     /**
