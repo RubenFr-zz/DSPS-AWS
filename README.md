@@ -13,7 +13,7 @@ First assignment in the course DSPS 2021B - Introduction to AWS in Java
 3. [Scalability](#scalability)
 4. [Security](#security)
 5. [Issues encountered](#issues-encountered)
-6. [Mandatory Requirements](#mandatory-equirements)
+6. [Mandatory Requirements](#mandatory-requirements)
 7. [Todo list](#todo-list)
 
 ## Description
