@@ -41,8 +41,8 @@ Where:
 You can find the outputs of the 5 input files in the directory `Output_Files`, a screen capture of the simulation of 
 the 5 input files at the same time as well as a file `logger-manager.txt` containing the console of the Manager during the run. 
 
-As we can see, processing the whole 5 files (2450 reviews) took 5 min and 19 seconds (taking into account that starting EC2 
-instances takes time as well as initializing the workers (1 minute))
+As we can see, processing the whole 5 files (2450 reviews) took __5 min and 19 seconds__ (taking into account that starting EC2 
+instances takes time as well as initializing the workers (1 minute)).
 
 ## EC2 parameters
 
